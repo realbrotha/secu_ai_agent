@@ -202,7 +202,7 @@ wu> 예제앱은 왜 통과됐어?
   - 채널: **Pull(권장, `GET /job` 폴링, 아웃바운드만)** 또는 Push(기존 배포 인프라). Bundle 포맷 동일.
   - 프롬프트를 바이너리에 굽지 않고 Bundle 로 → 서버가 점검정책·프롬프트를 **중앙 갱신**(재빌드 불요).
 - **의존성: 소스 벤더링(레포 커밋, submodule 아님).** 업스트림 드리프트 차단.
-  - 방법: `git clone --branch <tag>` → `.git` 제거 → `third_party/<lib>/` 복사 → 커밋. `third_party/VENDOR.md` 에 출처·버전·날짜·sha256 기록. 업데이트는 "다시 받아 교체 후 커밋"만.
+  - 방법: `git clone --branch <tag>` → `.git` 제거 → `third_party/<lib>/` 복사 → 커밋. `third_party/README.md` 에 출처·버전·날짜·sha256 기록. 업데이트는 "다시 받아 교체 후 커밋"만.
   - **llama.cpp/ggml**: 소스 벤더링 + `add_subdirectory`(BUILD_SHARED_LIBS=OFF, LLAMA_CURL=OFF, TESTS/EXAMPLES/SERVER=OFF, GGML_NATIVE=OFF). **버전 핀 고정**(API churn).
   - **nlohmann/json**: 단일 헤더 벤더링.
   - **curl/openssl**: 정적 lib arch별 벤더링 또는 소스 벤더링. (개발 초기 `find_package(CURL)` 허용, 배포는 vendored static.) → tls/http op 가 이 lib 로 native 구현(§7.3).
@@ -750,7 +750,7 @@ wu/
   agent/
     CMakeLists.txt            # C++17, cmake>=3.14, OS/arch 감지
     third_party/              # 소스 벤더링(커밋, submodule 아님)
-      llama.cpp/  nlohmann/json.hpp  curl/  openssl/  VENDOR.md
+      llama.cpp/  nlohmann/json.hpp  curl/  openssl/  README.md
     config/reactor.json       # baseUrl, llm.mode(local|remote|off), model path, polling, 추론 파라미터,
                               #  readAllowlist/denylist, 상한, spool 경로, packsDir
     config/packs/             # ★ 로컬 Check Pack (kisa-tomcat.json 등, §8.5) — standalone 실행 단위
@@ -799,7 +799,7 @@ CMake op 수집: `file(GLOB_RECURSE OP_SOURCES CONFIGURE_DEPENDS src/op/*.cpp)` 
 > 서버 수집(Phase 5)은 sink/source 추가만으로 얻으므로 뒤로 미룬다. LLM(Phase 1·4)은 Phase S 위의 증분.
 
 ### Phase 0 — 스캐폴드 + 빌드 (지금 목표)
-`wu/agent`(+`wu/server` 골격) 생성. CMake(C++17, `CXX_STANDARD_REQUIRED ON`, `EXTENSIONS OFF`, ≥3.14, OS/arch 감지). `third_party/`+`VENDOR.md` 골격. `main.cpp` 은 config 체크+로그만 — 외부 lib 링크 없이 빌드 성공. `.gitignore`(build/, models/).
+`wu/agent`(+`wu/server` 골격) 생성. CMake(C++17, `CXX_STANDARD_REQUIRED ON`, `EXTENSIONS OFF`, ≥3.14, OS/arch 감지). `third_party/`+`README.md` 골격. `main.cpp` 은 config 체크+로그만 — 외부 lib 링크 없이 빌드 성공. `.gitignore`(build/, models/).
 
 ### Phase 3 — op 프레임워크 + native op 세트 (점검의 실체)
 `op.h`/`registry`(자기등록)/`runner`(타입검증·read-only·timeout·evidence)/`path_guard`. native op: `net.list_ports/probe_port`, `proc.list`, `fs.*`, `config.read_value`, `sys.host_info/detect_was_web/get_version`, `assert.*`, `sys.version_vulnerable`, `tls.inspect`(openssl). `web.probe_http`(libcurl)는 api_client(Phase 2) 이후여도 무방. `legacy/run_script` 는 Tier3(기본 off). `platform/` OS 백엔드 + `spawn_fixed_argv`. *(이 단계는 서버/LLM 불요.)*
@@ -944,7 +944,7 @@ src/
     llm_engine.h               ILlmEngine(chat, grammar 인자) + make_local_llm 팩토리
     local_llama.cpp            LocalLlamaEngine(WU_HAVE_LLAMA 가드): 채팅템플릿+chatml폴백, grammar/penalties 샘플러
 ```
-- 벤더링: `third_party/nlohmann/json.hpp`(v3.11.3), `third_party/llama.cpp`(commit 2969d6d, ggml 0.16.0). `VENDOR.md` 참조.
+- 벤더링: `third_party/nlohmann/json.hpp`(v3.11.3), `third_party/llama.cpp`(commit 2969d6d, ggml 0.16.0). `third_party/README.md` 참조.
 - CMake: `src/op/*.cpp`·`src/core/*.cpp`·`src/llm/*.cpp` glob(CONFIGURE_DEPENDS) + `src/platform/*.cpp`. llama.cpp 는 `add_subdirectory`(EXISTS 가드) + `WU_HAVE_LLAMA`. 옵션: METAL/NATIVE off, tests/examples/server/tools off, static.
 
 ### 18.3 op 어휘 (17개, 전부 native·read-only)
