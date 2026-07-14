@@ -23,7 +23,6 @@ agent/models/**
 # GGUF 모델 디렉터리 (wu/gguf) — 로컬만, git 제외
 gguf/**
 !gguf/.gitkeep
-!gguf/README.md
 
 # Runtime / local artifacts
 agent/cache/
