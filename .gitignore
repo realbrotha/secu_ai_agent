@@ -1,0 +1,56 @@
+# Build
+agent/build/
+**/build/
+**/cmake-build-*/
+**/CMakeCache.txt
+**/CMakeFiles/
+**/compile_commands.json
+package/output/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Models / large binaries
+agent/models/**
+!agent/models/.gitkeep
+*.gguf
+*.gguf.*
+!agent/samples/artifacts/**
+
+# GGUF 모델 디렉터리 (wu/gguf) — 로컬만, git 제외
+gguf/**
+!gguf/.gitkeep
+!gguf/README.md
+
+# Runtime / local artifacts
+agent/cache/
+agent/logs/
+logs/
+*.log
+a.json
+**/a.json
+
+# IDE / OS / editor
+.idea/
+.vscode/
+.cursor/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Python (server later)
+**/__pycache__/
+**/.venv/
+**/venv/
+*.pyc
+
+# Secrets
+.env
+.env.*
+!.env.example
+**/credentials.json
+**/*secret*

@@ -1,0 +1,4 @@
+<tomcat-users>
+  <role rolename="manager-gui"/>
+  <user username="svc_ops_9f2c" password="$ecretL0ng!" roles="manager-gui"/>
+</tomcat-users>

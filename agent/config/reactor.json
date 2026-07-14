@@ -1,0 +1,28 @@
+{
+  "agent":  { "version": "0.1.0" },
+
+  "llm": {
+    "mode": "local",
+    "modelPath": "../gguf/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf",
+    "nCtx": 4096,
+    "temperature": 0.2,
+    "remoteBaseUrl": ""
+  },
+
+  "packsDir": "config/packs",
+  "spoolDir": "cache/spool",
+
+  "policy": {
+    "allowInlineScript": false,
+    "enableLlmReasoning": true,
+    "maxSteps": 8,
+    "perOpTimeoutSec": 30,
+    "totalTimeoutSec": 600,
+    "outputCapBytes": 65536,
+    "readAllowlist": ["/opt/tomcat", "/usr/local/tomcat", "/etc/httpd", "/etc/nginx", "/var/log",
+                      "/Users/hwoolee/Desktop/work/00.src/wu/agent/testdata"],
+    "readDenylist": ["/etc/shadow", "**/*.key", "**/*.pem"]
+  },
+
+  "server": { "baseUrl": "", "apiKey": "" }
+}

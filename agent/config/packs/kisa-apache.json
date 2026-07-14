@@ -1,0 +1,59 @@
+{
+  "packId": "kisa-apache",
+  "title": "KISA 기준 Apache 웹서버 보안 점검 (샘플)",
+  "version": "0.1",
+  "target": { "kind": ["web"], "product": "apache" },
+  "vars": { "web": { "root": "/etc/httpd" } },
+  "requires": ["$web.root/conf/httpd.conf"],
+
+  "checks": [
+    {
+      "checkId": "KISA-APACHE-01",
+      "title": "서버 버전/배너 노출 (ServerTokens)",
+      "category": "web/apache",
+      "severity": "medium",
+      "reference": { "kisa": "W-XX", "cis": "CIS Apache 2.4 - 8.x" },
+      "method": "ops",
+      "steps": [
+        { "op": "config.read_value",
+          "params": { "path": "$web.root/conf/httpd.conf", "format": "apache", "key": "ServerTokens" },
+          "as": "st" },
+        { "op": "assert.equals", "params": { "value": "$st.value", "expected": "Prod" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "ServerTokens Prod 로 설정하여 버전/모듈 정보 노출 최소화"
+    },
+    {
+      "checkId": "KISA-APACHE-02",
+      "title": "디렉터리 리스팅 활성 (Options Indexes)",
+      "category": "web/apache",
+      "severity": "high",
+      "reference": { "kisa": "W-XX", "cis": "CIS Apache 2.4 - 5.x" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.search_in_file",
+          "params": { "path": "$web.root/conf/httpd.conf", "pattern": "Options[^\\n]*Indexes", "is_regex": true },
+          "as": "idx" },
+        { "op": "assert.le", "params": { "value": "$idx.count", "threshold": 0 } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "Directory 의 Options 에서 Indexes 제거"
+    },
+    {
+      "checkId": "KISA-APACHE-03",
+      "title": "불필요 HTTP 메서드 (TraceEnable)",
+      "category": "web/apache",
+      "severity": "high",
+      "reference": { "kisa": "W-XX", "cis": "CIS Apache 2.4 - 6.x" },
+      "method": "ops",
+      "steps": [
+        { "op": "config.read_value",
+          "params": { "path": "$web.root/conf/httpd.conf", "format": "apache", "key": "TraceEnable" },
+          "as": "tr" },
+        { "op": "assert.matches", "params": { "value": "$tr.value", "regex": "(?i)off" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "TraceEnable Off 로 설정 (XST 방지)"
+    }
+  ]
+}

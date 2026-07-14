@@ -1,0 +1,57 @@
+{
+  "packId": "kisa-tomcat",
+  "title": "KISA 기준 Tomcat 보안 점검 (샘플)",
+  "version": "0.1",
+  "target": { "kind": ["was"], "product": "tomcat" },
+  "vars": { "was": { "home": "/opt/tomcat" } },
+  "requires": ["$was.home/conf"],
+
+  "checks": [
+    {
+      "checkId": "KISA-TOMCAT-01",
+      "title": "관리자 기본계정 사용",
+      "category": "was/tomcat",
+      "severity": "critical",
+      "reference": { "kisa": "W-XX", "cis": "CIS Tomcat 9 - 4.x" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.search_in_file",
+          "params": { "path": "$was.home/conf/tomcat-users.xml",
+                      "pattern": "username=\"(tomcat|admin|role1|both|manager|robot)\"",
+                      "is_regex": true },
+          "as": "hits" },
+        { "op": "assert.le", "params": { "value": "$hits.count", "threshold": 0 } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "tomcat-users.xml 의 기본계정(tomcat/admin 등) 삭제 또는 강한 암호로 변경"
+    },
+    {
+      "checkId": "KISA-TOMCAT-02",
+      "title": "예제/문서 애플리케이션 잔존",
+      "category": "was/tomcat",
+      "severity": "high",
+      "reference": { "kisa": "W-XX", "cis": "CIS Tomcat 9 - 3.x" },
+      "method": "ops",
+      "steps": [
+        { "op": "assert.absent", "params": { "path": "$was.home/webapps/examples" } },
+        { "op": "assert.absent", "params": { "path": "$was.home/webapps/docs" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "webapps/examples, docs, host-manager 등 불필요 앱 제거"
+    },
+    {
+      "checkId": "KISA-TOMCAT-03",
+      "title": "설정파일(server.xml) 권한 과다",
+      "category": "was/tomcat",
+      "severity": "high",
+      "reference": { "kisa": "W-XX", "cis": "CIS Tomcat 9 - 2.x" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info", "params": { "path": "$was.home/conf/server.xml" }, "as": "si" },
+        { "op": "assert.le", "params": { "value": "$si.mode", "threshold": "0640" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "conf/server.xml 등 설정파일 권한을 소유자 읽기전용(0640 이하)으로"
+    }
+  ]
+}
