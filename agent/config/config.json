@@ -9,7 +9,7 @@
     "remoteBaseUrl": ""
   },
 
-  "packsDir": "config/packs",
+  "rulesDir": "config/rules",
   "spoolDir": "cache/spool",
 
   "policy": {

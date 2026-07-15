@@ -65,17 +65,17 @@ cmake --build build -j
 
 ## 설정
 
-[`agent/config/reactor.json`](agent/config/reactor.json)
+[`agent/config/config.json`](agent/config/config.json)
 
 | 키 | 의미 |
 |----|------|
 | `llm.mode` | `local` \| `off` \| `remote`(미구현) |
 | `llm.modelPath` | GGUF 경로. 상대경로는 **agent 루트** 기준 (`../gguf/...`) |
 | `policy.enableLlmReasoning` | explain/ask/agent/자연어 LLM 게이트 |
-| `packsDir` | Check Pack JSON 디렉터리 |
+| `rulesDir` | 탐지 룰 JSON 디렉터리 (`config/rules`) |
 | `policy.readAllowlist` | PathGuard 허용 루트 |
 
-`-c` / `--config`로 설정 지정. cwd가 `agent/`가 아니어도 실행파일 상위에서 `config/reactor.json`을 탐색한다.
+`-c` / `--config`로 설정 지정. cwd가 `agent/`가 아니어도 실행파일 상위에서 `config/config.json`을 탐색한다.
 
 ---
 
@@ -100,7 +100,7 @@ cmake --build build -j
 ./build/wu_agent agent "리스닝 중인 TCP 포트 몇 개인지 확인해줘"
 
 # 다른 cwd
-./build/wu_agent -c /path/to/agent/config/reactor.json packs
+./build/wu_agent -c /path/to/agent/config/config.json rules
 ```
 
 결과: 콘솔 표 + `./a.json`  
@@ -110,7 +110,7 @@ llama 상세 로그: 기본 숨김. 필요 시 `WU_LLAMA_VERBOSE=1`.
 
 | 명령 | 설명 |
 |------|------|
-| `list packs` / `ops` | pack·op 목록 |
+| `list rules` / `ops` | 탐지 룰·op 목록 |
 | `run <packId> [--var k=v]` | pack 실행 |
 | `show <checkId>` | 직전 결과 항목 |
 | `explain` / `ask <질문>` | AI 요약·질의 |
@@ -145,7 +145,7 @@ curl -L -C - -o qwen2.5-1.5b-instruct-q4_k_m.gguf \
   "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf"
 ```
 
-`reactor.json`의 `modelPath`만 바꾸면 스왑.
+`config.json`의 `modelPath`만 바꾸면 스왑.
 
 라이선스: Qwen2.5 **0.5B/1.5B/7B/14B = Apache-2.0**. **3B·72B 비상업 → 미사용.**
 
@@ -188,8 +188,8 @@ agent/src/op/               op 프레임워크 + native op
 agent/src/core/             pack 인터프리터, ReAct
 agent/src/llm/              LocalLlamaEngine
 agent/src/platform/         OS별 net/proc
-agent/config/reactor.json   설정
-agent/config/packs/         kisa-tomcat, kisa-apache
+agent/config/config.json   설정
+agent/config/rules/         탐지 룰 (kisa-tomcat, kisa-apache 등)
 agent/third_party/          벤더링
 gguf/                       모델 (git 미포함)
 ```

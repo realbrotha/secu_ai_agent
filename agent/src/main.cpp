@@ -73,7 +73,7 @@ static wu::HostInfo make_host() {
 struct AppConfig {
     std::string configPath;
     std::string agentRoot;              // config 기준 루트 (상대경로 rebase 기준)
-    std::string packsDir = "config/packs";
+    std::string rulesDir = "config/rules";
     std::string spoolDir = "cache/spool";
     std::vector<std::string> allow, deny;
     bool        enableLlmReasoning = false;
@@ -122,7 +122,7 @@ static std::string rebase_rel(const fs::path& base, const std::string& p) {
     return (ec ? (base / path).lexically_normal() : joined).string();
 }
 
-// reactor.json 이 config/ 아래면 agent 루트는 그 parent
+// config.json 이 config/ 아래면 agent 루트는 그 parent
 static fs::path agent_root_from_config(const fs::path& config_file) {
     fs::path dir = config_file.parent_path();
     if (dir.filename() == "config") return dir.parent_path();
@@ -143,8 +143,11 @@ static std::string resolve_config_path(const std::string& requested) {
     for (fs::path d = executable_dir(); !d.empty(); d = d.parent_path()) {
         fs::path cand = d / req;
         if (fs::exists(cand, ec)) return fs::weakly_canonical(cand, ec).string();
-        fs::path fallback = d / "config" / "reactor.json";
+        fs::path fallback = d / "config" / "config.json";
         if (fs::exists(fallback, ec)) return fs::weakly_canonical(fallback, ec).string();
+        // 구 이름 하위호환
+        fs::path legacy = d / "config" / "reactor.json";
+        if (fs::exists(legacy, ec)) return fs::weakly_canonical(legacy, ec).string();
         if (d == d.root_path()) break;
     }
     return "";
@@ -157,7 +160,7 @@ static bool load_config(const std::string& path, AppConfig& c, std::string& err)
         json j; f >> j;
         c.configPath = path;
         c.agentRoot  = agent_root_from_config(path).string();
-        c.packsDir = j.value("packsDir", c.packsDir);
+        c.rulesDir = j.value("rulesDir", j.value("packsDir", c.rulesDir)); // packsDir 하위호환
         c.spoolDir = j.value("spoolDir", c.spoolDir);
         if (j.contains("policy")) {
             const auto& p = j["policy"];
@@ -173,7 +176,7 @@ static bool load_config(const std::string& path, AppConfig& c, std::string& err)
             c.temperature = l.value("temperature", c.temperature);
         }
         fs::path root(c.agentRoot);
-        c.packsDir  = rebase_rel(root, c.packsDir);
+        c.rulesDir  = rebase_rel(root, c.rulesDir);
         c.spoolDir  = rebase_rel(root, c.spoolDir);
         c.modelPath = rebase_rel(root, c.modelPath);
     } catch (const std::exception& e) {
@@ -204,7 +207,7 @@ static wu::ILlmEngine* ensure_llm(const AppConfig& cfg) {
 // explain/ask/agent/NL — policy.enableLlmReasoning 게이트
 static wu::ILlmEngine* ensure_llm_reasoning(const AppConfig& cfg) {
     if (!cfg.enableLlmReasoning) {
-        wu::log::warn("policy.enableLlmReasoning=false (reactor.json 에서 true 로 변경)");
+        wu::log::warn("policy.enableLlmReasoning=false (config.json 에서 true 로 변경)");
         return nullptr;
     }
     return ensure_llm(cfg);
@@ -236,8 +239,8 @@ static std::string compact_results(const json& result) {
 // Level 1: 자연어 요청 → 실행할 packId (없으면 "")
 static std::string llm_route(wu::ILlmEngine* llm, const AppConfig& cfg, const std::string& request) {
     std::vector<std::string> ids;
-    if (fs::exists(cfg.packsDir))
-        for (const auto& e : fs::directory_iterator(cfg.packsDir))
+    if (fs::exists(cfg.rulesDir))
+        for (const auto& e : fs::directory_iterator(cfg.rulesDir))
             if (e.path().extension() == ".json") ids.push_back(e.path().stem().string());
     if (ids.empty()) return "";
     std::string list; for (auto& i : ids) list += "- " + i + "\n";
@@ -345,7 +348,7 @@ static void render(const json& result) {
 
 // pack 실행 후 result json 반환(+a.json 기록). 실패 시 빈 객체.
 static json run_pack(const AppConfig& cfg, const std::string& packId, const json& vars, bool write_file) {
-    const std::string path = cfg.packsDir + "/" + packId + ".json";
+    const std::string path = cfg.rulesDir + "/" + packId + ".json";
     std::ifstream f(path);
     if (!f) { wu::log::error("pack 없음: " + path); return json::object(); }
     json pj;
@@ -372,10 +375,10 @@ static json run_pack(const AppConfig& cfg, const std::string& packId, const json
     }
 }
 
-static int cmd_list_packs(const AppConfig& cfg) {
-    if (!fs::exists(cfg.packsDir)) { wu::log::warn("packsDir 없음: " + cfg.packsDir); return 0; }
-    wu::log::info("packs (" + cfg.packsDir + "):");
-    for (const auto& e : fs::directory_iterator(cfg.packsDir))
+static int cmd_list_rules(const AppConfig& cfg) {
+    if (!fs::exists(cfg.rulesDir)) { wu::log::warn("rulesDir 없음: " + cfg.rulesDir); return 0; }
+    wu::log::info("rules (" + cfg.rulesDir + "):");
+    for (const auto& e : fs::directory_iterator(cfg.rulesDir))
         if (e.path().extension() == ".json")
             std::cout << "  " << e.path().stem().string() << "\n";
     return 0;
@@ -451,17 +454,17 @@ static int repl(const AppConfig& cfg) {
         const std::string& cmd = tok[0];
         if (cmd == "quit" || cmd == "exit") break;
         else if (cmd == "help") {
-            std::cout << "  list packs                       사용 가능한 pack 목록\n"
-                         "  run <packId> [--var k=v ...]     pack 실행 (예: run kisa-tomcat --var was.home=/opt/tomcat)\n"
+            std::cout << "  list rules                       탐지 룰 목록\n"
+                         "  run <ruleId> [--var k=v ...]     룰 실행 (예: run kisa-tomcat --var was.home=/opt/tomcat)\n"
                          "  ops                              op 목록\n"
                          "  show <checkId>                   직전 실행의 항목 상세\n"
                          "  explain                          직전 결과를 AI 가 요약 (llm 필요)\n"
                          "  ask <질문>                        직전 결과 근거로 AI 에게 질문 (llm 필요)\n"
-                         "  <자연어>                          예: '톰캣 보안 점검해줘' → AI 가 pack 선택/응답\n"
+                         "  <자연어>                          예: '톰캣 보안 점검해줘' → AI 가 룰 선택/응답\n"
                          "  quit                             종료\n";
         }
         else if (cmd == "ops") cmd_list_ops();
-        else if (cmd == "list" && tok.size() >= 2 && tok[1] == "packs") cmd_list_packs(cfg);
+        else if (cmd == "list" && tok.size() >= 2 && (tok[1] == "rules" || tok[1] == "packs")) cmd_list_rules(cfg);
         else if (cmd == "run" && tok.size() >= 2) {
             json vars = parse_vars(tok, 2);
             json r = run_pack(cfg, tok[1], vars, /*write_file=*/true);
@@ -493,8 +496,8 @@ static int repl(const AppConfig& cfg) {
         else {
             // Level 0: 문장에 pack 이름이 정확히 포함되면 실행
             std::string hit;
-            if (fs::exists(cfg.packsDir))
-                for (const auto& e : fs::directory_iterator(cfg.packsDir))
+            if (fs::exists(cfg.rulesDir))
+                for (const auto& e : fs::directory_iterator(cfg.rulesDir))
                     if (e.path().extension() == ".json" && line.find(e.path().stem().string()) != std::string::npos)
                         hit = e.path().stem().string();
             // Level 1: LLM 라우팅 (pack 매칭 실패 시)
@@ -522,7 +525,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> args(argv + 1, argv + argc);
 
     // -c / --config 선행 파싱
-    std::string config_arg = "config/reactor.json";
+    std::string config_arg = "config/config.json";
     {
         std::vector<std::string> rest;
         for (size_t i = 0; i < args.size(); ++i) {
@@ -557,7 +560,7 @@ int main(int argc, char** argv) {
             if (args.size() < 2) { wu::log::error("usage: wu_agent op <name> [json]"); return 1; }
             return cmd_run_op(args[1], args.size() >= 3 ? args[2] : "");
         }
-        if (c == "packs") return cmd_list_packs(cfg);
+        if (c == "rules" || c == "packs") return cmd_list_rules(cfg);
         if (c == "run") {
             if (args.size() < 2) { wu::log::error("usage: wu_agent run <packId> [--var k=v]"); return 1; }
             json r = run_pack(cfg, args[1], parse_vars(args, 2), true);
@@ -586,7 +589,7 @@ int main(int argc, char** argv) {
         }
         if (c == "-h" || c == "--help") {
             std::cout << "wu-agent " << WU_AGENT_VERSION << "\n"
-                         "  [-c|--config <path>] ops | op <name> [json] | packs | run <packId> [--var k=v] | llm <text> | repl\n";
+                         "  [-c|--config <path>] ops | op <name> [json] | rules | run <ruleId> [--var k=v] | llm <text> | repl\n";
             return 0;
         }
     }

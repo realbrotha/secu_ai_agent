@@ -751,7 +751,7 @@ wu/
     CMakeLists.txt            # C++17, cmake>=3.14, OS/arch 감지
     third_party/              # 소스 벤더링(커밋, submodule 아님)
       llama.cpp/  nlohmann/json.hpp  curl/  openssl/
-    config/reactor.json       # baseUrl, llm.mode(local|remote|off), model path, polling, 추론 파라미터,
+    config/config.json       # baseUrl, llm.mode(local|remote|off), model path, polling, 추론 파라미터,
                               #  readAllowlist/denylist, 상한, spool 경로, packsDir
     config/packs/             # ★ 로컬 Check Pack (kisa-tomcat.json 등, §8.5) — standalone 실행 단위
     samples/                  # job.json / a.json / checklist 예시 / trajectory.jsonl (계약+mock)
@@ -788,7 +788,7 @@ wu/
   gguf/                       # ★ .gguf 모델 파일 (agent 밖, wu/gguf). gitignore. config 의 model.path 가 ../gguf/*.gguf 참조
   server/                     # 신규 서버 (스택 미확정: Python/FastAPI 권장). 초기 골격만
 ```
-- **모델 위치 확정: `/Users/hwoolee/Desktop/work/00.src/wu/gguf/`** (agent 디렉터리 밖). `config/reactor.json` 의 `model.path` 는 상대경로 `../gguf/<파일>.gguf` (또는 절대경로)로 지정. 대용량이라 `.gitignore` 에 `gguf/` 포함.
+- **모델 위치 확정: `/Users/hwoolee/Desktop/work/00.src/wu/gguf/`** (agent 디렉터리 밖). `config/config.json` 의 `model.path` 는 상대경로 `../gguf/<파일>.gguf` (또는 절대경로)로 지정. 대용량이라 `.gitignore` 에 `gguf/` 포함.
 CMake op 수집: `file(GLOB_RECURSE OP_SOURCES CONFIGURE_DEPENDS src/op/*.cpp)` + OS별 `*_posix|*_win.cpp`. (보안상 명시적 파일 리스트도 대안 — op 추가가 diff 로 보임.)
 
 ---
@@ -982,7 +982,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
 - 실행은 반드시 `wu/agent` 디렉터리에서(config/gguf 상대경로). llama 로그 숨기려면 `2>/dev/null`.
 - 결과는 콘솔 표 + `./a.json`.
 
-### 18.6 설정 (`config/reactor.json`)
+### 18.6 설정 (`config/config.json`)
 - `llm.mode`: `local`(현재) | `off`(LLM 없이 결정적만) | `remote`(미구현).
 - `llm.modelPath`: 현재 `../gguf/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf`(2분할 자동로드). 1.5B 로 되돌리려면 경로만 변경.
 - `policy.readAllowlist/denylist`: PathGuard 루트. **현재 데모용으로 testdata 절대경로 포함** → 실배포 시 실제 대상 경로로 교체.
@@ -993,7 +993,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
 
 #### [결정] 모델 라이선스
 - Qwen2.5 **3B·72B 는 비상업(Qwen Research License)** → 회피. **0.5B/1.5B/7B/14B = Apache-2.0** 사용.
-- 개발: 1.5B(파이프라인 검증) → 7B(품질) 스왑. `config/reactor.json` 의 `llm.modelPath` 만 변경(코드 0).
+- 개발: 1.5B(파이프라인 검증) → 7B(품질) 스왑. `config/config.json` 의 `llm.modelPath` 만 변경(코드 0).
 
 #### [결정] 분할 GGUF 로드
 - 7B Q4_K_M 은 2분할(`...-00001-of-00002.gguf`, `...-00002-...`). **첫 shard 경로만 `modelPath` 로 지정하면 llama.cpp 가 나머지 자동 로드.** 병합 불필요.
@@ -1115,7 +1115,7 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/llama.cpp/CMakeLists.txt)
 endif()
 ```
 
-### 19.2 config/reactor.json (전체)
+### 19.2 config/config.json (전체)
 ```json
 {
   "agent": { "version": "0.1.0" },
