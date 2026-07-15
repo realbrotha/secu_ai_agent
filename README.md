@@ -205,3 +205,14 @@ gguf/                       모델 (git 미포함)
 | 4 | ✅ | 라우팅·요약·ask·ReAct |
 | 2/5 | ⬜ | remote LLM·서버 API |
 | 6 | ⬜ | 패키징·서비스 |
+
+---
+
+## Goal!!!
+
+다중 장비에 설치된 `secu-ai-agent`가 중앙 서버와 통신하고,  
+서버의 **Docker / K8s 검사·보안 리포팅** 요청에 따라 서비스를 제공한다.
+
+![secu-ai-agent Architecture](architecture-goal.png)
+
+상세: [`GOAL.md`](GOAL.md)
