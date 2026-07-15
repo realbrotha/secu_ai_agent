@@ -3,6 +3,7 @@
 #include "op/op.h"
 #include "op/registry.h"
 #include "op/context.h"
+#include "op/util_regex.h"
 #include <fstream>
 #include <sstream>
 #include <regex>
@@ -52,7 +53,7 @@ public:
                 : p.value("pattern", std::string(""));
             if (rex.empty()) return OpResult::err("attr/pattern 누락");
             try {
-                std::regex re(rex);
+                std::regex re = compile_regex(rex);
                 for (auto it = std::sregex_iterator(body.begin(), body.end(), re); it != std::sregex_iterator(); ++it)
                     values.push_back(it->size() > 1 ? (*it)[1].str() : (*it)[0].str());
             } catch (...) { return OpResult::err("잘못된 정규식"); }

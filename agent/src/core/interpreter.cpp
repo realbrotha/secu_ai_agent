@@ -147,6 +147,7 @@ CheckResult Interpreter::run_check(const CheckSpec& check, json bindings) {
 
     bool all_asserts_ok = true;
     bool has_assert = false;
+    json last_data = json::object();   // op_verdict: 마지막 op 의 구조화 결과
 
     for (const auto& step : check.steps) {
         // 관찰값 없음($ref 이 null): 이전 관찰이 대상 부재 등으로 값을 못 냄 → 판단 불가(na)
@@ -173,11 +174,28 @@ CheckResult Interpreter::run_check(const CheckSpec& check, json bindings) {
         if (r.status == OpStatus::not_applicable) { res.status = "na"; res.detail = r.error; return res; }
 
         if (!step.as.empty()) bindings[step.as] = r.data;
+        last_data = r.data;
 
         if (step.op.rfind("assert.", 0) == 0) {
             has_assert = true;
             if (!r.data.value("passed", false)) all_asserts_ok = false;
         }
+    }
+
+    // verdict-carrying op: 마지막 step 의 data.verdict(pass|fail|na) 를 그대로 승격.
+    //   복잡한 판정(순회/카운트/스택병합/중첩XML)은 네이티브 op 내부에서 계산한다.
+    //   op 은 na 사유를 내부에서 OpResult::na() 로 이미 라우팅하므로 여기선 pass/fail 위주.
+    if (check.passRule == "op_verdict") {
+        const std::string v = last_data.value("verdict", "");
+        if      (v == "pass") res.status = "pass";
+        else if (v == "fail") res.status = "fail";
+        else if (v == "na")   res.status = "na";
+        else { res.status = "na"; res.detail = "verdict 필드 없음"; }
+        if (last_data.contains("detail") && last_data["detail"].is_string())
+            res.detail = last_data["detail"].get<std::string>();
+        if (last_data.contains("severity") && last_data["severity"].is_string())
+            res.severity = last_data["severity"].get<std::string>();  // 동적 상/중 보정
+        return res;
     }
 
     if (check.passRule == "all_asserts_passed")

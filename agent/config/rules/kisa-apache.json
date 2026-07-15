@@ -1,59 +1,229 @@
 {
   "packId": "kisa-apache",
-  "title": "KISA 기준 Apache 웹서버 보안 점검 (샘플)",
-  "version": "0.1",
+  "title": "KISA 기준 Apache 웹서버 보안 점검",
+  "version": "1.0",
   "target": { "kind": ["web"], "product": "apache" },
   "vars": { "web": { "root": "/etc/httpd" } },
   "requires": ["$web.root/conf/httpd.conf"],
 
   "checks": [
     {
-      "checkId": "KISA-APACHE-01",
-      "title": "서버 버전/배너 노출 (ServerTokens)",
-      "category": "web/apache",
+      "checkId": "1.1",
+      "title": "웹 프로세스 권한 제한",
+      "category": "1. 접근 관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review",
+          "params": { "detail": "Apache 구동 계정이 root가 아닌 전용 계정인지, 해당 계정의 로그인 shell이 nologin/false로 제한되었는지는 getent 등 계정별 shell 조회가 필요하여 로컬 read-only op만으로 판정할 수 없습니다. httpd.conf/apache2.conf의 User/Group 값과 대상 계정의 shell을 수동 확인하십시오." },
+          "as": "r" }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "httpd.conf 또는 apache2.conf의 User/Group을 전용 계정으로 설정하고 해당 계정 shell을 /sbin/nologin 또는 /bin/false로 제한하십시오."
+    },
+    {
+      "checkId": "1.2",
+      "title": "설정 파일이 있는 디렉터리 권한 관리",
+      "category": "1. 접근 관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info", "params": { "path": "$web.root/conf" }, "as": "r" },
+        { "op": "assert.equals", "params": { "value": "$r.worldWritable", "expected": false } },
+        { "op": "assert.equals", "params": { "value": "$r.groupWritable", "expected": false } },
+        { "op": "assert.matches", "params": { "value": "$r.owner", "regex": "(?i)^(root|apache|www-data|appserver|daemon|httpd)$" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "Apache 설정 디렉터리의 소유자를 root 또는 전용 Web Server 계정으로 제한하고 group/other 쓰기 권한을 제거하십시오."
+    },
+    {
+      "checkId": "1.3",
+      "title": "설정 파일 권한 관리",
+      "category": "1. 접근 관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info", "params": { "path": "$web.root/conf/httpd.conf" }, "as": "r" },
+        { "op": "assert.matches", "params": { "value": "$r.mode", "regex": "^0[0-7]00$" } },
+        { "op": "assert.matches", "params": { "value": "$r.owner", "regex": "(?i)^(root|apache|www-data|appserver|daemon|httpd)$" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "Apache 설정 파일의 소유자를 root 또는 전용 계정으로 제한하고 group/other 권한을 제거하십시오."
+    },
+    {
+      "checkId": "1.4",
+      "title": "디렉터리 리스팅 제거",
+      "category": "1. 접근 관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "config.web_directives",
+          "params": { "product": "apache", "root": "$web.root/conf/httpd.conf", "rule": "options", "option": "indexes", "expect": "disabled" },
+          "as": "r" }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "Directory/Location 블록의 Options에서 Indexes를 제거하거나 -Indexes로 명시 차단하십시오."
+    },
+    {
+      "checkId": "2.1",
+      "title": "불필요한 파일 제거",
+      "category": "2. 보안 설정",
       "severity": "medium",
-      "reference": { "kisa": "W-XX", "cis": "CIS Apache 2.4 - 8.x" },
+      "reference": { "kisaRisk": "중" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review",
+          "params": { "detail": "기본 매뉴얼/샘플 CGI/예제 파일 존재 여부는 Alias/ScriptAlias가 가리키는 실제 대상 경로 및 DocumentRoot 하위를 동적으로 순회하고 실행권한/파일명 패턴을 판정해야 하므로 고정 경로 기반 op만으로 충실히 재현할 수 없습니다. manual, cgi-bin, 기본 index/샘플 CGI 존재 여부를 수동 확인하십시오." },
+          "as": "r" }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "manual, cgi-bin, 기본 index/샘플 CGI 등 불필요 파일과 Alias/ScriptAlias 설정을 제거하거나 접근을 차단하십시오."
+    },
+    {
+      "checkId": "2.2",
+      "title": "링크 사용 금지",
+      "category": "2. 보안 설정",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "config.web_directives",
+          "params": { "product": "apache", "root": "$web.root/conf/httpd.conf", "rule": "options", "option": "followsymlinks", "expect": "disabled" },
+          "as": "r" }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "Directory/Location 블록의 Options에서 FollowSymLinks를 제거하거나 -FollowSymLinks로 명시 차단하십시오."
+    },
+    {
+      "checkId": "2.3",
+      "title": "MultiViews 옵션 비활성화",
+      "category": "2. 보안 설정",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "config.web_directives",
+          "params": { "product": "apache", "root": "$web.root/conf/httpd.conf", "rule": "options", "option": "multiviews", "expect": "disabled" },
+          "as": "r" }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "Directory/Location 블록의 Options에서 MultiViews를 제거하거나 -MultiViews로 명시 차단하십시오."
+    },
+    {
+      "checkId": "2.4",
+      "title": "에러 메시지 관리",
+      "category": "2. 보안 설정",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review",
+          "params": { "detail": "400/401/403/404/500 각 오류 코드별 ErrorDocument 설정 존재 여부와 해당 오류 페이지 파일의 실제 존재 여부(문서 루트 내)를 코드별로 개별 판정해야 하며, 단일 verdict/value_match 로는 다중 코드 AND 조건을 충실히 표현할 수 없어 확인필요로 처리합니다." },
+          "as": "r" }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "400, 401, 403, 404, 500 오류 코드별 사용자 정의 오류 페이지를 만들고 ErrorDocument 지시어를 설정하십시오."
+    },
+    {
+      "checkId": "2.5",
+      "title": "응답 메시지 헤더 정보 숨기기",
+      "category": "2. 보안 설정",
+      "severity": "low",
+      "reference": { "kisaRisk": "하" },
       "method": "ops",
       "steps": [
         { "op": "config.read_value",
           "params": { "path": "$web.root/conf/httpd.conf", "format": "apache", "key": "ServerTokens" },
           "as": "st" },
-        { "op": "assert.equals", "params": { "value": "$st.value", "expected": "Prod" } }
+        { "op": "assert.matches", "params": { "value": "$st.value", "regex": "(?i)^prod" } },
+        { "op": "config.read_value",
+          "params": { "path": "$web.root/conf/httpd.conf", "format": "apache", "key": "ServerSignature" },
+          "as": "sig" },
+        { "op": "assert.matches", "params": { "value": "$sig.value", "regex": "(?i)^(off)?$" } }
       ],
       "pass": { "rule": "all_asserts_passed" },
-      "remediation": "ServerTokens Prod 로 설정하여 버전/모듈 정보 노출 최소화"
+      "remediation": "전역 설정에 ServerTokens Prod와 ServerSignature Off를 설정하십시오."
     },
     {
-      "checkId": "KISA-APACHE-02",
-      "title": "디렉터리 리스팅 활성 (Options Indexes)",
-      "category": "web/apache",
+      "checkId": "3.1",
+      "title": "Web 로그 설정",
+      "category": "3. 로그 관리",
       "severity": "high",
-      "reference": { "kisa": "W-XX", "cis": "CIS Apache 2.4 - 5.x" },
-      "method": "ops",
-      "steps": [
-        { "op": "fs.search_in_file",
-          "params": { "path": "$web.root/conf/httpd.conf", "pattern": "Options[^\\n]*Indexes", "is_regex": true },
-          "as": "idx" },
-        { "op": "assert.le", "params": { "value": "$idx.count", "threshold": 0 } }
-      ],
-      "pass": { "rule": "all_asserts_passed" },
-      "remediation": "Directory 의 Options 에서 Indexes 제거"
-    },
-    {
-      "checkId": "KISA-APACHE-03",
-      "title": "불필요 HTTP 메서드 (TraceEnable)",
-      "category": "web/apache",
-      "severity": "high",
-      "reference": { "kisa": "W-XX", "cis": "CIS Apache 2.4 - 6.x" },
+      "reference": { "kisaRisk": "상" },
       "method": "ops",
       "steps": [
         { "op": "config.read_value",
-          "params": { "path": "$web.root/conf/httpd.conf", "format": "apache", "key": "TraceEnable" },
-          "as": "tr" },
-        { "op": "assert.matches", "params": { "value": "$tr.value", "regex": "(?i)off" } }
+          "params": { "path": "$web.root/conf/httpd.conf", "format": "regex", "pattern": "(?i)^\\s*logformat\\s+\"(.+)\"\\s+combined" },
+          "as": "lf" },
+        { "op": "assert.contains", "params": { "value": "$lf.value", "needle": "%h" } },
+        { "op": "assert.contains", "params": { "value": "$lf.value", "needle": "%l" } },
+        { "op": "assert.contains", "params": { "value": "$lf.value", "needle": "%u" } },
+        { "op": "assert.contains", "params": { "value": "$lf.value", "needle": "%t" } },
+        { "op": "assert.contains", "params": { "value": "$lf.value", "needle": "%r" } },
+        { "op": "assert.contains", "params": { "value": "$lf.value", "needle": "%>s" } },
+        { "op": "assert.contains", "params": { "value": "$lf.value", "needle": "%b" } },
+        { "op": "assert.contains", "params": { "value": "$lf.value", "needle": "%{Referer}i" } },
+        { "op": "assert.contains", "params": { "value": "$lf.value", "needle": "%{User-Agent}i" } },
+        { "op": "fs.search_in_file",
+          "params": { "path": "$web.root/conf/httpd.conf", "pattern": "(?i)customlog.*combined", "is_regex": true },
+          "as": "cl" },
+        { "op": "assert.ge", "params": { "value": "$cl.count", "threshold": 1 } }
       ],
       "pass": { "rule": "all_asserts_passed" },
-      "remediation": "TraceEnable Off 로 설정 (XST 방지)"
+      "remediation": "LogFormat \"%h %l %u %t \\\"%r\\\" %>s %b \\\"%{Referer}i\\\" \\\"%{User-Agent}i\\\"\" combined 및 CustomLog ... combined를 설정하십시오."
+    },
+    {
+      "checkId": "3.2",
+      "title": "로그 디렉터리 및 파일 권한 관리",
+      "category": "3. 로그 관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info", "params": { "path": "/var/log/httpd" }, "as": "d" },
+        { "op": "assert.equals", "params": { "value": "$d.worldWritable", "expected": false } },
+        { "op": "assert.equals", "params": { "value": "$d.groupWritable", "expected": false } },
+        { "op": "fs.find_files",
+          "params": { "root": "/var/log/httpd", "type": "f", "perm": "0022" },
+          "as": "w" },
+        { "op": "assert.le", "params": { "value": "$w.count", "threshold": 0 } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "로그 디렉터리와 파일의 소유자를 root 또는 전용 계정으로 제한하고 group/other 쓰기 권한을 제거하십시오."
+    },
+    {
+      "checkId": "3.3",
+      "title": "로그 파일 주기적 백업",
+      "category": "3. 로그 관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review",
+          "params": { "detail": "로그 백업 정책 존재 여부는 중앙 수집기/백업 에이전트(filebeat, SIP Agent 등) 프로세스 및 해당 에이전트 설정과 Apache 로그 경로의 상관 매칭이 필요하여 로컬 read-only op만으로 판정할 수 없습니다. 로그 백업 정책과 보존 주기를 수동 확인하십시오." },
+          "as": "r" }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "별도 로그 서버, filebeat, SIP Agent 등으로 Apache 로그 백업 정책을 구성하고 보존 주기를 확인하십시오."
+    },
+    {
+      "checkId": "4.1",
+      "title": "안정화 버전 및 패치 적용",
+      "category": "4. 보안 패치",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review",
+          "params": { "detail": "Apache HTTP Server 보안 권고 및 배포판 백포트 패치 최신성은 자동 점검만으로 확정할 수 없어 확인필요로 처리합니다. httpd -V/apache2 -V 결과와 패키지 업데이트 이력을 확인하고 취약 버전이면 업데이트하십시오." },
+          "as": "r" }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "httpd -V 또는 apache2 -V 결과와 패키지 업데이트 이력을 확인하고 Apache HTTP Server 보안 권고 및 배포판 백포트 기준으로 취약 버전이면 업데이트하십시오."
     }
   ]
 }

@@ -18,6 +18,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <algorithm>
 #include <cstdio>
 #include <cstdint>
 
@@ -222,36 +223,100 @@ static std::string status_ko(const std::string& s) {
     return s;
 }
 
-// a.json 을 프롬프트용 간결 텍스트로
-static std::string compact_results(const json& result) {
+// a.json 을 프롬프트용 간결 텍스트로.
+//   brief=true(요약용): 실패(취약) 항목만, detail 은 앞부분만 → 프롬프트 토큰 최소화(prefill 가속).
+//   brief=false(ask/근거용): 전체 항목 + detail 유지.
+static std::string compact_results(const json& result, bool brief = false) {
     std::string s = "packId: " + result.value("packId", "") + "\n";
     const auto& sm = result["summary"];
     s += "집계: 취약(실패) " + std::to_string(sm.value("fail",0)) +
          " / 통과 " + std::to_string(sm.value("pass",0)) +
          " / 점검불가 " + std::to_string(sm.value("na",0)) +
-         " / 오류 " + std::to_string(sm.value("error",0)) + "\n항목:\n";
-    for (const auto& r : result["results"])
-        s += "- " + status_ko(r.value("status","")) + " | " + r.value("checkId","") + " (" + r.value("severity","") + ") "
-             + r.value("title","") + (r.value("detail","").empty()? "" : (" :: " + r.value("detail",std::string("")))) + "\n";
+         " / 오류 " + std::to_string(sm.value("error",0)) + "\n";
+    s += brief ? "실패(취약) 항목:\n" : "항목:\n";
+    for (const auto& r : result["results"]) {
+        const std::string st = r.value("status","");
+        if (brief && st != "fail") continue;                       // 요약은 실패 항목만
+        std::string detail = r.value("detail", std::string(""));
+        if (brief && detail.size() > 120) detail = detail.substr(0, 120) + "…";  // detail 축약
+        s += "- " + status_ko(st) + " | " + r.value("checkId","") + " (" + r.value("severity","") + ") "
+             + r.value("title","") + (detail.empty()? "" : (" :: " + detail)) + "\n";
+    }
     return s;
 }
 
-// Level 1: 자연어 요청 → 실행할 packId (없으면 "")
-static std::string llm_route(wu::ILlmEngine* llm, const AppConfig& cfg, const std::string& request) {
+// Level 1: 자연어 요청 → 라우팅 결정 (tool-calling / 구조화 JSON)
+struct RouteDecision {
+    std::string action = "none";       // "run" | "all" | "none"
+    std::vector<std::string> packs;    // 화이트리스트 검증된 packId
+    json vars = json::object();        // flat {"was.home":"/x"} (run_pack 이 set_nested)
+};
+
+// packId 집합·vars 를 GBNF 로 강제 (react.cpp build_grammar 패턴 복제)
+static std::string build_route_grammar(const std::vector<std::string>& ids) {
+    std::string pn;
+    for (size_t i = 0; i < ids.size(); ++i)
+        pn += (i ? " | " : "") + std::string("\"\\\"") + ids[i] + "\\\"\"";
+    return std::string(
+        "root ::= \"{\" ws \"\\\"action\\\"\" ws \":\" ws action ws \",\" ws "
+        "\"\\\"packs\\\"\" ws \":\" ws packs ws \",\" ws "
+        "\"\\\"vars\\\"\" ws \":\" ws vars ws \"}\"\n"
+        "action ::= \"\\\"run\\\"\" | \"\\\"all\\\"\" | \"\\\"none\\\"\"\n"
+        "packs ::= \"[\" ws ( packname ( ws \",\" ws packname )* )? ws \"]\"\n"
+        "packname ::= ") + pn + "\n"
+        "vars ::= \"{\" ws ( vpair ( ws \",\" ws vpair )* )? ws \"}\"\n"
+        "vpair ::= string ws \":\" ws string\n"
+        "string ::= \"\\\"\" ( [^\"\\\\] | \"\\\\\" [\"\\\\/bfnrt] )* \"\\\"\"\n"
+        "ws ::= [ \\t\\n]*\n";
+}
+
+static RouteDecision llm_route(wu::ILlmEngine* llm, const AppConfig& cfg, const std::string& request) {
+    RouteDecision d;
     std::vector<std::string> ids;
     if (fs::exists(cfg.rulesDir))
         for (const auto& e : fs::directory_iterator(cfg.rulesDir))
             if (e.path().extension() == ".json") ids.push_back(e.path().stem().string());
-    if (ids.empty()) return "";
+    std::sort(ids.begin(), ids.end());
+    if (ids.empty()) return d;   // none (실행할 pack 없음)
+
     std::string list; for (auto& i : ids) list += "- " + i + "\n";
+    const std::string grammar = build_route_grammar(ids);
     std::vector<wu::ChatMsg> msgs = {
-        { "system", "너는 명령 라우터다. 아래 점검 pack 목록 중 사용자 요청에 가장 맞는 packId 하나만 출력한다. "
-                    "맞는 게 없으면 정확히 NONE 만 출력. 다른 말/설명 금지.\n[pack]\n" + list },
+        { "system",
+          "너는 보안 점검 명령 라우터다. 사용자 요청을 아래 JSON 하나로만 출력한다(설명 금지).\n"
+          "형식: {\"action\":\"run|all|none\",\"packs\":[\"packId\",...],\"vars\":{\"키\":\"값\"}}\n"
+          "- 특정 대상 점검: action=run, packs 에 해당 packId(복수 가능).\n"
+          "- 전체 점검(모두/전체): action=all, packs=[].\n"
+          "- 점검 요청이 아니면(일반 대화): action=none, packs=[].\n"
+          "- 경로/대상이 문장에 있으면 vars 에 넣어라. 웹서버 경로 키=web.root, WAS(톰캣) 경로 키=was.home. 없으면 vars={}.\n"
+          "packId 는 반드시 아래 목록에서만 고른다.\n[packId 목록]\n" + list +
+          "예) '톰캣이랑 아파치 검사' -> {\"action\":\"run\",\"packs\":[\"kisa-tomcat\",\"kisa-apache\"],\"vars\":{}}\n"
+          "예) '톰캣 /opt/tomcat 점검' -> {\"action\":\"run\",\"packs\":[\"kisa-tomcat\"],\"vars\":{\"was.home\":\"/opt/tomcat\"}}\n"
+          "예) '모든 검사' -> {\"action\":\"all\",\"packs\":[],\"vars\":{}}\n"
+          "예) '안녕' -> {\"action\":\"none\",\"packs\":[],\"vars\":{}}" },
         { "user", request },
     };
-    std::string ans = llm->chat(msgs, 32, 0.0f);
-    for (auto& i : ids) if (ans.find(i) != std::string::npos) return i;  // 관용적 매칭
-    return "";
+    std::string resp = llm->chat(msgs, 128, 0.0f, grammar);
+
+    json j;
+    try { j = json::parse(resp); } catch (...) { return d; }   // 파싱 실패 → none
+
+    std::string action = j.value("action", std::string("none"));
+    if (action != "run" && action != "all" && action != "none") action = "none";
+    d.action = action;
+
+    if (j.contains("packs") && j["packs"].is_array())
+        for (const auto& p : j["packs"]) {
+            if (!p.is_string()) continue;
+            const std::string ps = p.get<std::string>();
+            if (std::find(ids.begin(), ids.end(), ps) != ids.end()) d.packs.push_back(ps);  // 화이트리스트
+        }
+    if (j.contains("vars") && j["vars"].is_object())
+        for (auto it = j["vars"].begin(); it != j["vars"].end(); ++it)
+            if (it.value().is_string()) d.vars[it.key()] = it.value();
+
+    if (d.action == "run" && d.packs.empty()) d.action = "none";   // run 인데 대상 없음 → 폴백
+    return d;
 }
 
 // verdict/설명: 결과를 한국어로 요약
@@ -262,9 +327,9 @@ static std::string llm_summarize(wu::ILlmEngine* llm, const json& result) {
                     "'점검불가(대상없음)'·'오류'·'통과'는 취약이 아니며 취약으로 말하지 마라. "
                     "취약(실패) 항목이 0개면 '취약 항목은 확인되지 않았습니다'라고 답하고, 점검불가가 있으면 그 사실만 알려라. "
                     "데이터에 없는 내용은 절대 지어내지 마라. 반드시 한국어로만 작성(한자·일본어 금지)." },
-        { "user", compact_results(result) },
+        { "user", compact_results(result, /*brief=*/true) },
     };
-    return llm->chat(msgs, 400, 0.2f);
+    return llm->chat(msgs, 220, 0.2f);
 }
 
 // 자동 요약: 실패(취약) 항목이 있을 때만 LLM 호출 (환각 표면 최소화)
@@ -375,6 +440,44 @@ static json run_pack(const AppConfig& cfg, const std::string& packId, const json
     }
 }
 
+// rulesDir 의 모든 packId (정렬)
+static std::vector<std::string> all_pack_ids(const AppConfig& cfg) {
+    std::vector<std::string> ids;
+    if (fs::exists(cfg.rulesDir))
+        for (const auto& e : fs::directory_iterator(cfg.rulesDir))
+            if (e.path().extension() == ".json") ids.push_back(e.path().stem().string());
+    std::sort(ids.begin(), ids.end());
+    return ids;
+}
+
+// 주어진 pack 목록을 vars 로 실행 → 각각 표 렌더 + 통합 집계. last 로 쓸 마지막 결과 반환.
+static json run_packs(const AppConfig& cfg, const std::vector<std::string>& ids, const json& vars) {
+    if (ids.empty()) { wu::log::warn("실행할 pack 이 없습니다: " + cfg.rulesDir); return json::object(); }
+    int T=0,P=0,F=0,N=0,E=0, vulnPacks=0;
+    json last;
+    for (const auto& id : ids) {
+        json r = run_pack(cfg, id, vars, /*write_file=*/false);
+        if (r.empty()) continue;
+        std::cout << "\n\033[1m══ " << id << " ══\033[0m\n";
+        render(r);
+        const auto& s = r["summary"];
+        T += s.value("total",0); P += s.value("pass",0); F += s.value("fail",0);
+        N += s.value("na",0);    E += s.value("error",0);
+        if (s.value("fail",0) > 0) ++vulnPacks;
+        last = r;
+    }
+    std::cout << "\n\033[1m════════ 전체 통합 요약 ════════\033[0m\n"
+              << "  점검 대상 " << ids.size() << "종 | 검사 항목 " << T << "개"
+              << " | 통과 " << P << " | 실패 " << F << " | 검사불가 " << N << " | 오류 " << E
+              << "  (취약 대상 " << vulnPacks << "종)\n";
+    return last;
+}
+
+// 모든 pack 실행 (run_packs 위임)
+static json run_all_packs(const AppConfig& cfg) {
+    return run_packs(cfg, all_pack_ids(cfg), json::object());
+}
+
 static int cmd_list_rules(const AppConfig& cfg) {
     if (!fs::exists(cfg.rulesDir)) { wu::log::warn("rulesDir 없음: " + cfg.rulesDir); return 0; }
     wu::log::info("rules (" + cfg.rulesDir + "):");
@@ -456,6 +559,7 @@ static int repl(const AppConfig& cfg) {
         else if (cmd == "help") {
             std::cout << "  list rules                       탐지 룰 목록\n"
                          "  run <ruleId> [--var k=v ...]     룰 실행 (예: run kisa-tomcat --var was.home=/opt/tomcat)\n"
+                         "  run all                          모든 룰 실행 + 통합 요약\n"
                          "  ops                              op 목록\n"
                          "  show <checkId>                   직전 실행의 항목 상세\n"
                          "  explain                          직전 결과를 AI 가 요약 (llm 필요)\n"
@@ -465,6 +569,10 @@ static int repl(const AppConfig& cfg) {
         }
         else if (cmd == "ops") cmd_list_ops();
         else if (cmd == "list" && tok.size() >= 2 && (tok[1] == "rules" || tok[1] == "packs")) cmd_list_rules(cfg);
+        else if (cmd == "run" && tok.size() >= 2 && (tok[1] == "all" || tok[1] == "*")) {
+            json r = run_all_packs(cfg);
+            if (!r.empty()) last = r;
+        }
         else if (cmd == "run" && tok.size() >= 2) {
             json vars = parse_vars(tok, 2);
             json r = run_pack(cfg, tok[1], vars, /*write_file=*/true);
@@ -494,24 +602,49 @@ static int repl(const AppConfig& cfg) {
             }
         }
         else {
-            // Level 0: 문장에 pack 이름이 정확히 포함되면 실행
+            // Level 0-a: "모든/전체/전부 검사" → 모든 pack 실행
+            {
+                auto has = [&](const char* k){ return line.find(k) != std::string::npos; };
+                bool wantAll = (has("모든") || has("전체") || has("전부") || has("all") || has("싹 다"));
+                bool aboutCheck = (has("검사") || has("점검") || has("실행") || has("돌려") || has("scan") || has("run"));
+                if (wantAll && aboutCheck) {
+                    json r = run_all_packs(cfg);
+                    if (!r.empty()) last = r;
+                    continue;
+                }
+            }
+            // Level 0: 문장에 pack 이름이 그대로 포함되면 즉시 실행 (LLM 불필요)
             std::string hit;
             if (fs::exists(cfg.rulesDir))
                 for (const auto& e : fs::directory_iterator(cfg.rulesDir))
                     if (e.path().extension() == ".json" && line.find(e.path().stem().string()) != std::string::npos)
                         hit = e.path().stem().string();
-            // Level 1: LLM 라우팅 (pack 매칭 실패 시)
-            if (hit.empty()) {
-                if (auto* llm = ensure_llm_reasoning(cfg)) hit = llm_route(llm, cfg, line);
-            }
             if (!hit.empty()) {
                 wu::log::info("(해석) pack 실행: " + hit);
                 json r = run_pack(cfg, hit, json::object(), true);
                 if (!r.empty()) { render(r); last = r; print_ai_summary(cfg, r); }
-            } else if (auto* llm = ensure_llm_reasoning(cfg)) {
-                std::cout << "AI> " << llm_answer(llm, last, line) << "\n";  // 일반 대화
+                continue;
+            }
+
+            // Level 1: tool-calling 라우터 (grammar 강제 JSON → 파싱·검증)
+            auto* llm = ensure_llm_reasoning(cfg);
+            if (!llm) { wu::log::warn("알 수 없는 명령: " + line + "  (`help`)"); continue; }
+            RouteDecision d = llm_route(llm, cfg, line);
+
+            if (d.action == "all") {
+                json r = run_packs(cfg, all_pack_ids(cfg), d.vars);
+                if (!r.empty()) last = r;
+            } else if (d.action == "run" && d.packs.size() == 1) {
+                wu::log::info("(해석) pack 실행: " + d.packs[0] + (d.vars.empty() ? "" : (" vars=" + d.vars.dump())));
+                json r = run_pack(cfg, d.packs[0], d.vars, true);
+                if (!r.empty()) { render(r); last = r; print_ai_summary(cfg, r); }
+            } else if (d.action == "run" && d.packs.size() >= 2) {
+                std::string names; for (auto& p : d.packs) names += (names.empty()?"":", ") + p;
+                wu::log::info("(해석) 복수 pack 실행: " + names + (d.vars.empty() ? "" : (" vars=" + d.vars.dump())));
+                json r = run_packs(cfg, d.packs, d.vars);
+                if (!r.empty()) last = r;
             } else {
-                wu::log::warn("알 수 없는 명령: " + line + "  (`help`)");
+                std::cout << "AI> " << llm_answer(llm, last, line) << "\n";  // none → 일반 대화 폴백
             }
         }
     }
@@ -562,7 +695,8 @@ int main(int argc, char** argv) {
         }
         if (c == "rules" || c == "packs") return cmd_list_rules(cfg);
         if (c == "run") {
-            if (args.size() < 2) { wu::log::error("usage: wu_agent run <packId> [--var k=v]"); return 1; }
+            if (args.size() < 2) { wu::log::error("usage: wu_agent run <packId|all> [--var k=v]"); return 1; }
+            if (args[1] == "all" || args[1] == "*") { run_all_packs(cfg); return 0; }
             json r = run_pack(cfg, args[1], parse_vars(args, 2), true);
             if (r.empty()) return 1;
             render(r);

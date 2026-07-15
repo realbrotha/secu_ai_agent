@@ -16,6 +16,7 @@ class NetListPortsOp : public IOp {
         d.params  = {
             { "proto", "enum", false, "all", { {}, {}, {"tcp","udp","all"}, "" }, "프로토콜 필터", 0 },
             { "state", "enum", false, "all", { {}, {}, {"listen","established","all"}, "" }, "상태 필터", 1 },
+            { "port",  "int",  false, nullptr, {}, "특정 localPort 만 반환(선택)" },
         };
         d.returns = {
             { "ports", "array<object>", "[{proto,localAddr,localPort,state,pid,process}]" },
@@ -29,10 +30,12 @@ public:
     OpResult run(const json& p, OpContext&) override {
         const std::string proto = p.value("proto", "all");
         const std::string state = p.value("state", "all");
+        const long want_port = (p.contains("port") && p["port"].is_number()) ? p["port"].get<long>() : -1;
         auto ports = platform::list_ports(proto, state);
 
         json arr = json::array();
         for (const auto& e : ports) {
+            if (want_port >= 0 && e.localPort != want_port) continue;
             arr.push_back({
                 {"proto", e.proto}, {"localAddr", e.localAddr}, {"localPort", e.localPort},
                 {"state", e.state}, {"pid", e.pid}, {"process", e.process},

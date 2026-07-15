@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <mutex>
+#include <algorithm>
 
 namespace wu {
 
@@ -80,6 +81,12 @@ private:
         if (llama_tokenize(vocab_, prompt.c_str(), (int)prompt.size(), tokens.data(), (int)tokens.size(), true, true) < 0)
             return "(토크나이즈 실패)";
 
+        // 컨텍스트 초과 방지: 프롬프트가 n_ctx-여유 를 넘으면 앞부분(지시문 포함)만 유지.
+        const int n_ctx = (int)llama_n_ctx(ctx_);
+        const int max_prompt = n_ctx - max_tokens - 8;
+        if (max_prompt > 0 && (int)tokens.size() > max_prompt)
+            tokens.resize(max_prompt);
+
         // KV 캐시 초기화 (매 호출 새 대화로 처리 — 단순/안전)
         llama_memory_clear(llama_get_memory(ctx_), true);
 
@@ -98,16 +105,25 @@ private:
             llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
         }
 
-        llama_batch batch = llama_batch_get_one(tokens.data(), (int)tokens.size());
+        // 프리필: 프롬프트를 n_batch 단위로 분할 decode (n_tokens > n_batch abort 방지).
+        const int n_batch = (int)llama_n_batch(ctx_);
         std::string out;
-        for (int i = 0; i < max_tokens; ++i) {
-            if (llama_decode(ctx_, batch) != 0) break;
+        bool decode_ok = true;
+        for (int start = 0; start < (int)tokens.size(); start += n_batch) {
+            const int cnt = std::min(n_batch, (int)tokens.size() - start);
+            llama_batch pb = llama_batch_get_one(tokens.data() + start, cnt);
+            if (llama_decode(ctx_, pb) != 0) { decode_ok = false; break; }
+        }
+
+        // 생성 루프: 한 토큰씩.
+        for (int i = 0; decode_ok && i < max_tokens; ++i) {
             llama_token tok = llama_sampler_sample(smpl, ctx_, -1);
             if (llama_vocab_is_eog(vocab_, tok)) break;
             char piece[256];
             int pn = llama_token_to_piece(vocab_, tok, piece, sizeof(piece), 0, true);
             if (pn > 0) out.append(piece, pn);
-            batch = llama_batch_get_one(&tok, 1);
+            llama_batch nb = llama_batch_get_one(&tok, 1);
+            if (llama_decode(ctx_, nb) != 0) break;
         }
         llama_sampler_free(smpl);
         return out;

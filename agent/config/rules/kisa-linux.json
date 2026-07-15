@@ -1,0 +1,779 @@
+{
+  "packId": "kisa-linux",
+  "title": "KISA 주요정보통신기반시설 Linux 서버 취약점 점검",
+  "version": "1.0",
+  "target": { "kind": ["os"], "product": "linux" },
+  "vars": {},
+  "requires": ["/etc/passwd"],
+  "checks": [
+    {
+      "checkId": "1.1",
+      "title": "root 계정 원격 접속 제한",
+      "category": "1. 계정관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "config.sshd", "params": { "key": "PermitRootLogin", "default": "prohibit-password" }, "as": "r" },
+        { "op": "assert.matches", "params": { "value": "$r.value", "regex": "(?i)^(no|prohibit-password)$" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "/etc/ssh/sshd_config 에서 PermitRootLogin 을 no 또는 prohibit-password 로 설정 후 sshd 재시작."
+    },
+    {
+      "checkId": "1.2",
+      "title": "불필요 계정 삭제",
+      "category": "1. 계정관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review", "params": { "detail": "lp, uucp, nuucp 등 기본 불필요 계정 및 퇴직자 계정의 존재 여부는 조직의 계정 관리 정책과 대조가 필요하여 자동 판정 불가. 불필요/퇴직자 계정 삭제 또는 비활성화 여부를 수동 확인." } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "userdel 로 불필요 계정 삭제, 또는 shell 을 /sbin/nologin 으로 변경하여 로그인 차단."
+    },
+    {
+      "checkId": "1.3",
+      "title": "패스워드 복잡성 설정",
+      "category": "1. 계정관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "config.read_value", "params": { "path": "/etc/security/pwquality.conf", "format": "properties", "key": "minclass" }, "as": "r" },
+        { "op": "assert.ge", "params": { "value": "$r.value", "threshold": "4" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "/etc/security/pwquality.conf 에 minclass=4 (또는 dcredit/ucredit/lcredit/ocredit=-1) 설정으로 대/소문자·숫자·특수문자 혼합을 강제."
+    },
+    {
+      "checkId": "1.4",
+      "title": "패스워드 최소 길이 설정",
+      "category": "1. 계정관리",
+      "severity": "medium",
+      "reference": { "kisaRisk": "중" },
+      "method": "ops",
+      "steps": [
+        { "op": "config.read_value", "params": { "path": "/etc/security/pwquality.conf", "format": "properties", "key": "minlen" }, "as": "r" },
+        { "op": "assert.ge", "params": { "value": "$r.value", "threshold": "8" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "/etc/security/pwquality.conf 에 minlen=8 이상 설정."
+    },
+    {
+      "checkId": "1.5",
+      "title": "패스워드 최대 사용기간 설정",
+      "category": "1. 계정관리",
+      "severity": "medium",
+      "reference": { "kisaRisk": "중" },
+      "method": "ops",
+      "steps": [
+        { "op": "config.read_value", "params": { "path": "/etc/login.defs", "format": "properties", "key": "PASS_MAX_DAYS" }, "as": "r" },
+        { "op": "assert.le", "params": { "value": "$r.value", "threshold": "90" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "/etc/login.defs 에 PASS_MAX_DAYS 90 이하로 설정."
+    },
+    {
+      "checkId": "1.6",
+      "title": "패스워드 최소 사용기간 설정",
+      "category": "1. 계정관리",
+      "severity": "medium",
+      "reference": { "kisaRisk": "중" },
+      "method": "ops",
+      "steps": [
+        { "op": "config.read_value", "params": { "path": "/etc/login.defs", "format": "properties", "key": "PASS_MIN_DAYS" }, "as": "r" },
+        { "op": "assert.ge", "params": { "value": "$r.value", "threshold": "1" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "/etc/login.defs 에 PASS_MIN_DAYS 1 이상으로 설정."
+    },
+    {
+      "checkId": "1.7",
+      "title": "계정 잠금 임계값 설정",
+      "category": "1. 계정관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "config.pam", "params": { "files": ["/etc/pam.d/system-auth", "/etc/pam.d/password-auth"], "module": "pam_faillock.so", "rule": "present" } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "PAM 에 pam_faillock.so (deny=5, unlock_time=300 이상) 를 설정하여 로그인 실패 시 계정 잠금."
+    },
+    {
+      "checkId": "1.8",
+      "title": "패스워드 암호화 설정",
+      "category": "1. 계정관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "sys.accounts", "params": { "rule": "password_algo", "expect_algo": "sha512" } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "/etc/login.defs 의 ENCRYPT_METHOD 를 SHA512 로 설정하고 패스워드 재설정."
+    },
+    {
+      "checkId": "1.9",
+      "title": "root UID 권한 관리",
+      "category": "1. 계정관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "sys.accounts", "params": { "rule": "uid0_unique" } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "UID 0 은 root 계정만 갖도록 /etc/passwd 를 수정."
+    },
+    {
+      "checkId": "1.10",
+      "title": "동일한 UID 금지",
+      "category": "1. 계정관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "sys.accounts", "params": { "rule": "duplicate_uid" } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "중복 UID 를 갖는 계정에 고유한 UID 를 부여."
+    },
+    {
+      "checkId": "1.11",
+      "title": "SU 제한",
+      "category": "1. 계정관리",
+      "severity": "low",
+      "reference": { "kisaRisk": "하" },
+      "method": "ops",
+      "steps": [
+        { "op": "config.pam", "params": { "files": ["/etc/pam.d/su"], "module": "pam_wheel.so", "rule": "present" } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "/etc/pam.d/su 에 pam_wheel.so 를 활성화하여 wheel 그룹 사용자만 su 사용 허용."
+    },
+    {
+      "checkId": "1.12",
+      "title": "shell 제한",
+      "category": "1. 계정관리",
+      "severity": "low",
+      "reference": { "kisaRisk": "하" },
+      "method": "ops",
+      "steps": [
+        { "op": "sys.accounts", "params": { "rule": "login_shell" } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "로그인이 불필요한 시스템 계정의 shell 을 /sbin/nologin 또는 /bin/false 로 변경."
+    },
+    {
+      "checkId": "1.13",
+      "title": "Session Timeout 설정",
+      "category": "1. 계정관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "sys.shell_var", "params": { "files": ["/etc/profile", "/etc/bashrc", "/etc/profile.d/*.sh"], "key": "TMOUT", "rule": "num_le", "threshold": "1800" } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "/etc/profile 등에 TMOUT=1800 이하로 설정하여 세션 자동 종료."
+    },
+    {
+      "checkId": "2.1",
+      "title": "PATH 환경변수 설정",
+      "category": "2. 파일시스템",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review", "params": { "detail": "root 계정 환경변수 파일의 PATH 에 현재 디렉토리(.)가 없거나 맨 뒤에만 위치하는지는 사용자별 환경파일 해석이 필요하여 수동 확인. root 의 .bash_profile/.profile 및 /etc/profile 의 PATH 를 점검." } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "PATH 환경변수에서 현재 디렉토리(.)를 제거하거나 맨 뒤로 이동."
+    },
+    {
+      "checkId": "2.2",
+      "title": "Passwd 파일 권한 설정",
+      "category": "2. 파일시스템",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info", "params": { "path": "/etc/passwd" }, "as": "r" },
+        { "op": "assert.equals", "params": { "value": "$r.owner", "expected": "root" } },
+        { "op": "assert.le", "params": { "value": "$r.mode", "threshold": "0644" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "chown root /etc/passwd; chmod 644 /etc/passwd"
+    },
+    {
+      "checkId": "2.3",
+      "title": "Shadow 파일 권한 설정",
+      "category": "2. 파일시스템",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info", "params": { "path": "/etc/shadow" }, "as": "r" },
+        { "op": "assert.equals", "params": { "value": "$r.owner", "expected": "root" } },
+        { "op": "assert.le", "params": { "value": "$r.mode", "threshold": "0400" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "chown root /etc/shadow; chmod 400 /etc/shadow"
+    },
+    {
+      "checkId": "2.4",
+      "title": "Group 파일 권한 설정",
+      "category": "2. 파일시스템",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info", "params": { "path": "/etc/group" }, "as": "r" },
+        { "op": "assert.le", "params": { "value": "$r.mode", "threshold": "0644" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "chown root /etc/group; chmod 644 /etc/group (소유자 root 또는 bin)"
+    },
+    {
+      "checkId": "2.5",
+      "title": "Hosts 파일 권한 설정",
+      "category": "2. 파일시스템",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info", "params": { "path": "/etc/hosts" }, "as": "r" },
+        { "op": "assert.le", "params": { "value": "$r.mode", "threshold": "0644" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "chown root /etc/hosts; chmod 644 /etc/hosts (소유자 root 또는 bin)"
+    },
+    {
+      "checkId": "2.6",
+      "title": "xinetd.conf 파일 권한 설정",
+      "category": "2. 파일시스템",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info", "params": { "path": "/etc/xinetd.conf" }, "as": "r" },
+        { "op": "assert.equals", "params": { "value": "$r.owner", "expected": "root" } },
+        { "op": "assert.le", "params": { "value": "$r.mode", "threshold": "0640" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "chown root /etc/xinetd.conf; chmod 640 /etc/xinetd.conf"
+    },
+    {
+      "checkId": "2.7",
+      "title": "(r)syslog.conf 파일 권한 설정",
+      "category": "2. 파일시스템",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info", "params": { "path": "/etc/rsyslog.conf" }, "as": "r" },
+        { "op": "assert.le", "params": { "value": "$r.mode", "threshold": "0640" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "chown root /etc/rsyslog.conf; chmod 640 /etc/rsyslog.conf (소유자 root/bin/daemon)"
+    },
+    {
+      "checkId": "2.8",
+      "title": "서비스 파일 권한 설정",
+      "category": "2. 파일시스템",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info", "params": { "path": "/etc/services" }, "as": "r" },
+        { "op": "assert.le", "params": { "value": "$r.mode", "threshold": "0644" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "chown root /etc/services; chmod 644 /etc/services (소유자 root 또는 bin)"
+    },
+    {
+      "checkId": "2.9",
+      "title": "Profile 파일 권한 설정",
+      "category": "2. 파일시스템",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info", "params": { "path": "/etc/profile" }, "as": "r" },
+        { "op": "assert.equals", "params": { "value": "$r.worldWritable", "expected": false } },
+        { "op": "assert.le", "params": { "value": "$r.mode", "threshold": "0644" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "chown root /etc/profile; chmod 644 /etc/profile (타 사용자 쓰기권한 제거)"
+    },
+    {
+      "checkId": "2.10",
+      "title": "Issue 파일 권한 설정",
+      "category": "2. 파일시스템",
+      "severity": "medium",
+      "reference": { "kisaRisk": "중" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info", "params": { "path": "/etc/issue" }, "as": "r" },
+        { "op": "assert.equals", "params": { "value": "$r.worldWritable", "expected": false } },
+        { "op": "assert.le", "params": { "value": "$r.mode", "threshold": "0644" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "chown root /etc/issue; chmod 644 /etc/issue (타 사용자 쓰기권한 제거)"
+    },
+    {
+      "checkId": "2.11",
+      "title": "hosts.lpd 파일 권한 설정",
+      "category": "2. 파일시스템",
+      "severity": "low",
+      "reference": { "kisaRisk": "하" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info", "params": { "path": "/etc/hosts.lpd" }, "as": "r" },
+        { "op": "assert.equals", "params": { "value": "$r.owner", "expected": "root" } },
+        { "op": "assert.le", "params": { "value": "$r.mode", "threshold": "0600" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "/etc/hosts.lpd 삭제 또는 chown root; chmod 600 /etc/hosts.lpd (파일 부재 시 양호)"
+    },
+    {
+      "checkId": "2.12",
+      "title": "주요 디렉터리 파일 권한 설정",
+      "category": "2. 파일시스템",
+      "severity": "medium",
+      "reference": { "kisaRisk": "중" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review", "params": { "detail": "/etc, /bin, /sbin, /usr/bin, /usr/sbin 등 주요 디렉터리(심볼릭 링크 대응 포함)의 소유자·권한을 다수 대상으로 순회 점검해야 하므로 수동 확인. 각 디렉터리에 타 사용자 쓰기권한이 없는지 점검." } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "주요 시스템 디렉터리의 소유자를 root 로, 타 사용자 쓰기권한을 제거."
+    },
+    {
+      "checkId": "2.13",
+      "title": "로컬 로그인용 PAM 규칙 파일 권한 설정",
+      "category": "2. 파일시스템",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info", "params": { "path": "/etc/pam.d/login" }, "as": "r" },
+        { "op": "assert.equals", "params": { "value": "$r.worldWritable", "expected": false } },
+        { "op": "assert.le", "params": { "value": "$r.mode", "threshold": "0644" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "/etc/pam.d 하위 로그인 규칙 파일의 소유자를 root/bin, group/other 쓰기권한 제거."
+    },
+    {
+      "checkId": "2.14",
+      "title": "홈 디렉터리 권한설정",
+      "category": "2. 파일시스템",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review", "params": { "detail": "전체 사용자 홈 디렉터리를 순회하며 소유자 일치 및 타 사용자 쓰기권한 여부를 점검해야 하므로 수동 확인. 각 홈 디렉터리가 해당 사용자 소유이고 group/other 쓰기권한이 없는지 점검." } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "각 사용자 홈 디렉터리의 소유자를 해당 사용자로 설정하고 타 사용자 쓰기권한 제거."
+    },
+    {
+      "checkId": "2.15",
+      "title": "홈 디렉터리의 존재 및 일치 여부 관리",
+      "category": "2. 파일시스템",
+      "severity": "medium",
+      "reference": { "kisaRisk": "중" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review", "params": { "detail": "/etc/passwd 에 지정된 홈 디렉터리의 실제 존재 여부 및 일치성을 계정별로 순회 확인해야 하므로 수동 확인." } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "존재하지 않거나 부적절한 홈 디렉터리 경로를 수정하고 필요한 디렉터리를 생성."
+    },
+    {
+      "checkId": "2.16",
+      "title": "홈디렉터리 환경변수 파일 권한 설정",
+      "category": "2. 파일시스템",
+      "severity": "medium",
+      "reference": { "kisaRisk": "중" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review", "params": { "detail": "각 사용자 홈 디렉터리의 환경변수 파일(.profile, .bashrc, .bash_profile 등)을 순회하며 소유자·권한을 점검해야 하므로 수동 확인." } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "홈 디렉터리 환경변수 파일의 소유자를 해당 사용자로, 타 사용자 쓰기권한을 제거."
+    },
+    {
+      "checkId": "2.17",
+      "title": "Setuid, Setgid 설정",
+      "category": "2. 파일시스템",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review", "params": { "detail": "SUID/SGID 설정 파일 목록을 수집한 뒤 시스템 필수 바이너리 허용목록과 대조가 필요하여 자동 판정 불가. find / -perm -4000 -o -perm -2000 결과를 허용목록과 비교하여 불필요한 SUID/SGID 제거." } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "불필요한 SUID/SGID 비트를 chmod -s 로 제거."
+    },
+    {
+      "checkId": "2.18",
+      "title": "UMASK 설정",
+      "category": "2. 파일시스템",
+      "severity": "medium",
+      "reference": { "kisaRisk": "중" },
+      "method": "ops",
+      "steps": [
+        { "op": "sys.shell_var", "params": { "files": ["/etc/login.defs", "/etc/profile", "/etc/bashrc"], "key": "umask", "form": "umask", "rule": "octal_ge", "threshold": "022" } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "/etc/profile 또는 /etc/login.defs 에 UMASK 를 022 또는 027 로 설정."
+    },
+    {
+      "checkId": "2.19",
+      "title": ".rhosts, hosts.equiv 사용 금지",
+      "category": "2. 파일시스템",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "assert.absent", "params": { "path": "/etc/hosts.equiv" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "/etc/hosts.equiv 및 사용자 홈의 .rhosts 파일을 삭제하고 rsh/rlogin 서비스를 중지."
+    },
+    {
+      "checkId": "2.20",
+      "title": "Crontab 파일 권한 설정",
+      "category": "2. 파일시스템",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info", "params": { "path": "/etc/crontab" }, "as": "r" },
+        { "op": "assert.equals", "params": { "value": "$r.worldWritable", "expected": false } },
+        { "op": "assert.le", "params": { "value": "$r.mode", "threshold": "0640" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "chown root /etc/crontab; chmod 640 /etc/crontab (타 사용자 쓰기권한 제거)"
+    },
+    {
+      "checkId": "2.21",
+      "title": "at 파일 소유자 및 권한 설정",
+      "category": "2. 파일시스템",
+      "severity": "medium",
+      "reference": { "kisaRisk": "중" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info", "params": { "path": "/etc/at.deny" }, "as": "r" },
+        { "op": "assert.le", "params": { "value": "$r.mode", "threshold": "0640" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "chown root /etc/at.allow /etc/at.deny; chmod 640 (소유자 root 또는 bin)"
+    },
+    {
+      "checkId": "3.1",
+      "title": "finger 서비스 비활성화",
+      "category": "3. 서비스관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "svc.service_state", "params": { "name": "finger", "rule": "disabled" } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "finger 서비스(finger.socket / xinetd finger)를 비활성화하고 79/tcp 리스닝을 제거."
+    },
+    {
+      "checkId": "3.2",
+      "title": "RPC 서비스 설정",
+      "category": "3. 서비스관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "svc.service_state", "params": { "name": "rpcbind", "rule": "disabled" } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "불필요한 rpcbind 등 RPC 서비스를 비활성화하고 111 포트 리스닝을 제거."
+    },
+    {
+      "checkId": "3.3",
+      "title": "NFS 서비스 관리",
+      "category": "3. 서비스관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "svc.service_state", "params": { "name": "nfs-server", "rule": "disabled" } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "NFS 미사용 시 nfs-server 를 비활성화. 사용 시 root_squash, sync 등 보안 옵션을 적용."
+    },
+    {
+      "checkId": "3.4",
+      "title": "Automountd 중지",
+      "category": "3. 서비스관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "svc.service_state", "params": { "name": "autofs", "rule": "disabled" } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "autofs(automount) 서비스를 비활성화."
+    },
+    {
+      "checkId": "3.5",
+      "title": "NIS, NIS+ 점검",
+      "category": "3. 서비스관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "svc.service_state", "params": { "name": "ypserv", "rule": "disabled" } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "ypserv/ypbind 등 NIS 관련 서비스를 비활성화."
+    },
+    {
+      "checkId": "3.6",
+      "title": "TFTP, Talk 서비스 비활성화",
+      "category": "3. 서비스관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "svc.service_state", "params": { "name": "tftp", "rule": "disabled" } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "tftp, talk/ntalk 서비스를 비활성화하고 관련 포트 리스닝을 제거."
+    },
+    {
+      "checkId": "3.7",
+      "title": "일반사용자의 Sendmail 실행 방지",
+      "category": "3. 서비스관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review", "params": { "detail": "SMTP(sendmail) 사용 여부와 sendmail.cf PrivacyOptions 의 restrictqrun 등 q 옵션 제한 설정을 종합 확인해야 하므로 수동 점검." } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "/etc/mail/sendmail.cf 의 PrivacyOptions 에 restrictqrun 추가로 일반사용자 q 옵션 제한."
+    },
+    {
+      "checkId": "3.8",
+      "title": "SMTP expn, vrfy 명령어 제한",
+      "category": "3. 서비스관리",
+      "severity": "medium",
+      "reference": { "kisaRisk": "중" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review", "params": { "detail": "SMTP 사용 여부 및 sendmail.cf PrivacyOptions 의 noexpn, novrfy(또는 goaway) 설정을 확인해야 하므로 수동 점검." } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "sendmail.cf PrivacyOptions 에 noexpn, novrfy 를 설정하여 expn/vrfy 명령을 제한."
+    },
+    {
+      "checkId": "3.9",
+      "title": "스팸 메일 릴레이 제한",
+      "category": "3. 서비스관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review", "params": { "detail": "SMTP 사용 여부와 access DB / relay 제한 설정을 확인해야 하므로 수동 점검." } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "sendmail access 파일 등에서 릴레이를 신뢰 호스트로만 제한."
+    },
+    {
+      "checkId": "3.10",
+      "title": "DNS Zone Transfer 설정",
+      "category": "3. 서비스관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review", "params": { "detail": "DNS(named) 사용 여부와 named.conf 의 allow-transfer 설정(신뢰 IP/ACL 제한)을 확인해야 하므로 수동 점검." } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "named.conf 의 allow-transfer 를 Secondary DNS 등 신뢰 대상으로만 제한."
+    },
+    {
+      "checkId": "3.11",
+      "title": "FTP 서비스 관리",
+      "category": "3. 서비스관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review", "params": { "detail": "FTP 사용 여부, Anonymous FTP 비활성화, 고권한 계정 로그인 차단(ftpusers), 접근제어 파일 권한 등을 종합 확인해야 하므로 수동 점검." } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "FTP 미사용 시 비활성화. 사용 시 anonymous 비활성, ftpusers 로 root 등 차단, 설정파일 권한 보호."
+    },
+    {
+      "checkId": "3.12",
+      "title": "SNMP 서비스 보안 설정",
+      "category": "3. 서비스관리",
+      "severity": "medium",
+      "reference": { "kisaRisk": "중" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review", "params": { "detail": "SNMP 사용 여부, 커뮤니티 스트링(기본값/길이), SNMPv3 authPriv, 설정파일 권한을 종합 확인해야 하므로 수동 점검." } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "SNMP 미사용 시 비활성화. 사용 시 8자 이상 비기본 커뮤니티 스트링 또는 SNMPv3 authPriv 적용."
+    },
+    {
+      "checkId": "3.13",
+      "title": "Telnet 원격접속 제한",
+      "category": "3. 서비스관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "svc.service_state", "params": { "name": "telnet", "rule": "disabled" } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "telnet 서비스를 비활성화하고 SSH 를 사용."
+    },
+    {
+      "checkId": "3.14",
+      "title": "로그온 시 경고 메시지 제공",
+      "category": "3. 서비스관리",
+      "severity": "low",
+      "reference": { "kisaRisk": "하" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review", "params": { "detail": "SSH/FTP/SMTP/DNS 등 사용 중인 서비스별 로그인 경고 배너 설정(/etc/issue, /etc/issue.net, sshd Banner 등)을 종합 확인해야 하므로 수동 점검." } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "/etc/issue, /etc/issue.net 및 각 서비스 배너에 경고 메시지를 설정."
+    },
+    {
+      "checkId": "3.15",
+      "title": "'xhost +' 설정",
+      "category": "3. 서비스관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review", "params": { "detail": "모든 사용자의 자동실행 파일(.xinitrc, .profile 등)에서 'xhost +' 설정 존재 여부를 순회 확인해야 하므로 수동 점검." } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "자동실행 파일에서 'xhost +' 를 제거하고 'xhost -' 또는 특정 호스트만 허용."
+    },
+    {
+      "checkId": "3.16",
+      "title": "SWAT 강제공격 방지",
+      "category": "3. 서비스관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "svc.service_state", "params": { "name": "swat", "rule": "disabled" } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "SWAT(Samba Web Administration Tool) 를 제거하거나 비활성화."
+    },
+    {
+      "checkId": "4.1",
+      "title": "su 로그 설정",
+      "category": "4. 로그관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review", "params": { "detail": "su 명령 실행 이력이 auth/authpriv 로그에 기록되는지는 rsyslog 설정과 실제 로그 기록을 함께 확인해야 하므로 수동 점검." } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "rsyslog 에서 authpriv.* 로그를 기록하도록 설정하여 su 실행 이력을 남김."
+    },
+    {
+      "checkId": "4.2",
+      "title": "(r)syslog 설정",
+      "category": "4. 로그관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.search_in_file", "params": { "path": "/etc/rsyslog.conf", "pattern": "authpriv|\\*\\.info|/var/log|messages|maillog|secure", "is_regex": true }, "as": "r" },
+        { "op": "assert.ge", "params": { "value": "$r.count", "threshold": "1" } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "/etc/rsyslog.conf 에 시스템 로그 기록 규칙(authpriv, *.info, /var/log 등)을 설정."
+    },
+    {
+      "checkId": "4.3",
+      "title": "로그 파일 권한 설정",
+      "category": "4. 로그관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info", "params": { "path": "/var/log/wtmp" }, "as": "r" },
+        { "op": "assert.equals", "params": { "value": "$r.worldWritable", "expected": false } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "주요 로그 파일(/var/log/*)에서 일반 사용자(other) 쓰기권한을 제거."
+    },
+    {
+      "checkId": "4.4",
+      "title": "명령어 실행 기록 설정",
+      "category": "4. 로그관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review", "params": { "detail": "Bash 명령어 실행 로그(history, auditd 등)가 생성·기록되도록 설정되어 있는지는 조직의 로깅 정책과 함께 확인해야 하므로 수동 점검." } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "auditd 또는 shell history 설정으로 명령어 실행 기록을 남기도록 구성."
+    },
+    {
+      "checkId": "4.5",
+      "title": "로그 백업",
+      "category": "4. 로그관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review", "params": { "detail": "별도 로그서버 백업 수행 여부는 조직 운영 정책 및 원격 인프라 확인이 필요하여 로컬 점검으로 판정 불가하므로 수동 점검." } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "원격 로그서버(rsyslog remote 등)로 로그를 정기 백업하도록 구성."
+    },
+    {
+      "checkId": "4.6",
+      "title": "History 로그 시간 설정",
+      "category": "4. 로그관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "sys.shell_var", "params": { "files": ["/etc/profile", "/etc/bashrc", "/etc/profile.d/*.sh"], "key": "HISTTIMEFORMAT", "rule": "present" } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "/etc/profile 등에 HISTTIMEFORMAT 를 설정하여 명령어 실행 시간을 함께 기록."
+    },
+    {
+      "checkId": "5.1",
+      "title": "안정화 버전 및 패치 적용",
+      "category": "5. 패치관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review", "params": { "detail": "최근 6개월 이내 패치/업데이트 적용 여부와 안정화 버전 사용 여부는 조직의 패치 정책 및 최신성 판단이 필요하여 수동 점검." } }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "OS 및 주요 패키지를 안정화 버전으로 유지하고 정기적으로 보안 패치를 적용."
+    }
+  ]
+}

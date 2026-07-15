@@ -3,6 +3,8 @@
 #include <regex>
 #include <chrono>
 #include <algorithm>
+#include <cstdlib>
+#include <cstring>
 
 namespace wu {
 
@@ -61,6 +63,10 @@ std::string validate(const std::vector<ParamSpec>& specs, const json& params) {
             if (s.constraint.max && n > *s.constraint.max) return s.name + " 이 최대값 초과";
         } else if (s.type == "bool") {
             if (!v.is_boolean()) return s.name + " 은 bool 이어야 함";
+        } else if (s.type == "array") {
+            if (!v.is_array()) return s.name + " 은 배열이어야 함";
+        } else if (s.type == "object") {
+            if (!v.is_object()) return s.name + " 은 객체여야 함";
         } else if (s.constraint.choices.empty()) {
             // string/path/glob/regex 등은 문자열
             if (!v.is_string()) return s.name + " 은 문자열이어야 함";
@@ -114,9 +120,11 @@ OpResult run_op_guarded(IOp* op, json params, OpContext& ctx) {
     if (ctx.policy.perOpTimeoutSec > 0 && ms > (long)ctx.policy.perOpTimeoutSec * 1000)
         wu::log::warn("  [op] " + d.name + " 소요 " + std::to_string(ms) + "ms (perOpTimeout 초과)");
 
-    // evidence (Phase 3: 로그. Phase 5 에서 궤적 JSONL 로 확장)
-    wu::log::info("  [op] " + d.name + " (" + std::to_string(ms) + "ms) params=" + params.dump() +
-                  " -> " + to_string(r.status));
+    // op 단위 상세는 기본 숨김. WU_OP_VERBOSE=1 일 때만.
+    if (const char* v = std::getenv("WU_OP_VERBOSE"); v && v[0] && std::strcmp(v, "0") != 0) {
+        wu::log::info("  [op] " + d.name + " (" + std::to_string(ms) + "ms) params=" + params.dump() +
+                      " -> " + to_string(r.status));
+    }
     return r;
 }
 

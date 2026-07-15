@@ -2,6 +2,7 @@
 #include "op/op.h"
 #include "op/registry.h"
 #include "op/context.h"
+#include "op/util_regex.h"
 #include <fstream>
 #include <regex>
 #include <string>
@@ -37,7 +38,7 @@ public:
         if (!f) return OpResult::na("파일 없음: " + path);  // 검사 불가 → na (오탐 방지)
 
         std::regex re;
-        if (is_regex) { try { re = std::regex(pattern); } catch (...) { return OpResult::err("잘못된 정규식: " + pattern); } }
+        if (is_regex) { try { re = compile_regex(pattern); } catch (...) { return OpResult::err("잘못된 정규식: " + pattern); } }
 
         json matches = json::array();
         std::string line; long lineno = 0, count = 0;

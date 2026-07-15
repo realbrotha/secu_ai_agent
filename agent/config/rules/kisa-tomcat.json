@@ -1,57 +1,242 @@
 {
   "packId": "kisa-tomcat",
-  "title": "KISA 기준 Tomcat 보안 점검 (샘플)",
-  "version": "0.1",
+  "title": "KISA 기준 Tomcat WAS 보안 점검",
+  "version": "1.0",
   "target": { "kind": ["was"], "product": "tomcat" },
   "vars": { "was": { "home": "/opt/tomcat" } },
-  "requires": ["$was.home/conf"],
+  "requires": ["$was.home/conf/server.xml"],
 
   "checks": [
     {
-      "checkId": "KISA-TOMCAT-01",
-      "title": "관리자 기본계정 사용",
-      "category": "was/tomcat",
-      "severity": "critical",
-      "reference": { "kisa": "W-XX", "cis": "CIS Tomcat 9 - 4.x" },
+      "checkId": "1.1",
+      "title": "Default 관리자 계정명 변경",
+      "category": "1. 계정 관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
       "method": "ops",
       "steps": [
-        { "op": "fs.search_in_file",
-          "params": { "path": "$was.home/conf/tomcat-users.xml",
-                      "pattern": "username=\"(tomcat|admin|role1|both|manager|robot)\"",
-                      "is_regex": true },
-          "as": "hits" },
-        { "op": "assert.le", "params": { "value": "$hits.count", "threshold": 0 } }
+        { "op": "config.xml_query",
+          "params": {
+            "path": "$was.home/conf/tomcat-users.xml",
+            "rule": "attr_none_match",
+            "element": "user",
+            "attr": "username",
+            "regex": "^(tomcat|admin|administrator|manager|root|system)$"
+          },
+          "as": "r" }
       ],
-      "pass": { "rule": "all_asserts_passed" },
-      "remediation": "tomcat-users.xml 의 기본계정(tomcat/admin 등) 삭제 또는 강한 암호로 변경"
+      "pass": { "rule": "op_verdict" },
+      "remediation": "tomcat-users.xml의 기본 관리자 계정(tomcat/admin/administrator/manager/root/system 등)을 삭제하거나 유추하기 어려운 계정명으로 변경하십시오."
     },
     {
-      "checkId": "KISA-TOMCAT-02",
-      "title": "예제/문서 애플리케이션 잔존",
-      "category": "was/tomcat",
+      "checkId": "1.2",
+      "title": "취약한 패스워드 사용제한",
+      "category": "1. 계정 관리",
       "severity": "high",
-      "reference": { "kisa": "W-XX", "cis": "CIS Tomcat 9 - 3.x" },
+      "reference": { "kisaRisk": "상" },
       "method": "ops",
       "steps": [
-        { "op": "assert.absent", "params": { "path": "$was.home/webapps/examples" } },
-        { "op": "assert.absent", "params": { "path": "$was.home/webapps/docs" } }
+        { "op": "config.xml_query",
+          "params": {
+            "path": "$was.home/conf/tomcat-users.xml",
+            "rule": "attr_none_match",
+            "element": "user",
+            "attr": "password",
+            "regex": "^(tomcat|admin|administrator|manager|root|system|password|changeit|changeme|must-be-changed|1234|12345|123456|qwer|test)$"
+          },
+          "as": "r" }
       ],
-      "pass": { "rule": "all_asserts_passed" },
-      "remediation": "webapps/examples, docs, host-manager 등 불필요 앱 제거"
+      "pass": { "rule": "op_verdict" },
+      "remediation": "tomcat-users.xml의 기본/취약 패스워드(tomcat, admin, changeit, must-be-changed, 1234 등)를 제거하고 영문 대소문자·숫자·특수문자를 포함한 8자 이상 패스워드를 적용하십시오. 참고: 정규식 기반 점검이므로 password 속성이 완전히 비어있는(빈 문자열) 계정은 이 규칙으로 탐지되지 않으니, 빈 패스워드 계정이 없는지 수동으로 함께 확인하십시오."
     },
     {
-      "checkId": "KISA-TOMCAT-03",
-      "title": "설정파일(server.xml) 권한 과다",
-      "category": "was/tomcat",
+      "checkId": "2.1",
+      "title": "Tomcat 관리자 콘솔 관리",
+      "category": "2. 접근 관리",
       "severity": "high",
-      "reference": { "kisa": "W-XX", "cis": "CIS Tomcat 9 - 2.x" },
+      "reference": { "kisaRisk": "상" },
       "method": "ops",
       "steps": [
-        { "op": "fs.file_info", "params": { "path": "$was.home/conf/server.xml" }, "as": "si" },
-        { "op": "assert.le", "params": { "value": "$si.mode", "threshold": "0640" } }
+        { "op": "ctx.review",
+          "params": {
+            "detail": "manager/host-manager/admin 관리자 콘솔 앱의 존재 여부와 접근 제어(RemoteAddrValve/RemoteCIDRValve의 allow ACL), 기본 8080 포트 변경 여부를 종합 판정해야 하며, webapps 배치·context descriptor·server.xml Connector·관리자 role 설정을 함께 교차 확인해야 하는 복합 판정이므로 자동 규칙으로 확정할 수 없습니다. webapps 하위 manager/host-manager/admin 앱을 사용하지 않으면 제거하고, 사용 시 기본 8080 포트를 변경하며 관리자 role 최소화 및 RemoteAddrValve 접근 제어 적용 여부를 수동 확인하십시오."
+          },
+          "as": "r" }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "manager/host-manager/admin 애플리케이션을 사용하지 않으면 제거하고, 사용해야 한다면 기본 8080 포트 변경, 관리자 role 최소화, RemoteAddrValve 등 접근 제어를 적용하십시오."
+    },
+    {
+      "checkId": "2.2",
+      "title": "패스워드 파일 권한 관리",
+      "category": "2. 접근 관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info",
+          "params": { "path": "$was.home/conf/tomcat-users.xml" },
+          "as": "r" },
+        { "op": "assert.equals", "params": { "value": "$r.worldWritable", "expected": false } }
       ],
       "pass": { "rule": "all_asserts_passed" },
-      "remediation": "conf/server.xml 등 설정파일 권한을 소유자 읽기전용(0640 이하)으로"
+      "remediation": "tomcat-users.xml에 other(그 외 사용자) 쓰기 권한이 있으면 제거하십시오."
+    },
+    {
+      "checkId": "2.3",
+      "title": "설정 파일이 있는 디렉터리 권한 관리",
+      "category": "2. 접근 관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info",
+          "params": { "path": "$was.home/conf" },
+          "as": "r" },
+        { "op": "assert.equals", "params": { "value": "$r.worldWritable", "expected": false } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "Tomcat conf 설정 디렉터리에 other 쓰기 권한이 있으면 제거하십시오."
+    },
+    {
+      "checkId": "2.4",
+      "title": "설정 파일 권한 관리",
+      "category": "2. 접근 관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.find_files",
+          "params": { "root": "$was.home/conf", "type": "f", "perm": "0002", "maxdepth": 2 },
+          "as": "r" },
+        { "op": "assert.le", "params": { "value": "$r.count", "threshold": 0 } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "Tomcat conf 하위 *.xml, *.properties, *.policy 등 설정 파일에 other 쓰기 권한이 있으면 제거하십시오."
+    },
+    {
+      "checkId": "2.5",
+      "title": "디렉터리 리스팅 설정 제한",
+      "category": "2. 접근 관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "config.xml_query",
+          "params": {
+            "path": "$was.home/conf/web.xml",
+            "rule": "servlet_init_param",
+            "servletClass": "org.apache.catalina.servlets.DefaultServlet",
+            "initParam": "listings",
+            "mustEqual": "false",
+            "defaultWhenAbsent": "false"
+          },
+          "as": "r" }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "conf/web.xml 및 애플리케이션 WEB-INF/web.xml의 DefaultServlet listings 값을 false로 설정하십시오."
+    },
+    {
+      "checkId": "3.1",
+      "title": "불필요한 파일 제거",
+      "category": "3. 보안 설정",
+      "severity": "medium",
+      "reference": { "kisaRisk": "중" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.file_info", "params": { "path": "$was.home/webapps/docs" }, "as": "docs" },
+        { "op": "assert.equals", "params": { "value": "$docs.exists", "expected": false } },
+        { "op": "fs.file_info", "params": { "path": "$was.home/webapps/examples" }, "as": "examples" },
+        { "op": "assert.equals", "params": { "value": "$examples.exists", "expected": false } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "운영에 불필요한 webapps/docs 및 webapps/examples 디렉터리를 삭제하십시오."
+    },
+    {
+      "checkId": "3.2",
+      "title": "에러 메시지 관리",
+      "category": "3. 보안 설정",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "config.xml_query",
+          "params": {
+            "path": "$was.home/conf/web.xml",
+            "rule": "error_codes",
+            "codes": ["400", "401", "403", "404", "500"]
+          },
+          "as": "r" }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "conf/web.xml 또는 애플리케이션 WEB-INF/web.xml에 400, 401, 403, 404, 500 오류 코드별 error-page를 설정하십시오."
+    },
+    {
+      "checkId": "4.1",
+      "title": "Web 로그 설정",
+      "category": "4. 로그 관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review",
+          "params": {
+            "detail": "server.xml의 AccessLogValve(className org.apache.catalina.valves.AccessLogValve) pattern 속성에 필수 로그 항목(%h, %l, %u, %t, %r, %s, %b, %{Referer}i, %{User-Agent}i)이 모두 포함되어 있고 로그 출력 경로가 /dev/null이 아닌지를 판정해야 하나, pattern 토큰 조합 및 다중 Valve 판정은 단순 속성 비교로 확정할 수 없어 확인필요로 처리합니다. server.xml의 AccessLogValve pattern에 필수 로그 항목을 포함하고 로그를 /dev/null로 보내지 않도록 설정되어 있는지 수동 확인하십시오."
+          },
+          "as": "r" }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "server.xml의 AccessLogValve pattern에 %h, %l, %u, %t, %r, %s, %b, %{Referer}i, %{User-Agent}i 등 필수 로그 항목을 포함하고 로그를 /dev/null로 보내지 않도록 설정하십시오."
+    },
+    {
+      "checkId": "4.2",
+      "title": "로그 디렉터리 및 파일 권한 관리",
+      "category": "4. 로그 관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "fs.find_files",
+          "params": { "root": "$was.home/logs", "type": "f", "perm": "0002", "maxdepth": 2 },
+          "as": "r" },
+        { "op": "assert.le", "params": { "value": "$r.count", "threshold": 0 } }
+      ],
+      "pass": { "rule": "all_asserts_passed" },
+      "remediation": "Tomcat 로그 디렉터리와 로그 파일에 other 쓰기 권한이 있으면 제거하십시오."
+    },
+    {
+      "checkId": "4.3",
+      "title": "로그 파일 주기적 백업",
+      "category": "4. 로그 관리",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review",
+          "params": {
+            "detail": "로그 파일의 백업 정책(주기별 별도 로그 서버 또는 백업 경로 보관) 존재 여부는 filebeat/logstash/SIP Agent 등 외부 수집·백업 설정과 조직 운영 정책 확인이 필요하여 로컬 read-only 점검만으로 확정할 수 없습니다. Tomcat 로그 디렉터리와 파일이 백업 수집 설정에 포함되어 있고 보관 주기·정책이 적용되어 있는지 수동 확인하십시오."
+          },
+          "as": "r" }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "filebeat, SIP Agent 등 로그 수집/백업 설정에 Tomcat 로그 디렉터리와 파일을 포함하고 백업 주기 및 보관 정책을 확인하십시오."
+    },
+    {
+      "checkId": "5.1",
+      "title": "안정화 버전 및 패치 적용",
+      "category": "5. 보안 패치",
+      "severity": "high",
+      "reference": { "kisaRisk": "상" },
+      "method": "ops",
+      "steps": [
+        { "op": "ctx.review",
+          "params": {
+            "detail": "설치된 Tomcat 버전이 취약점이 패치된 안정화 버전인지 여부는 Apache Tomcat 보안 권고 및 배포판/벤더 백포트 패치 기준과 대조가 필요하여 자동 점검만으로 확정할 수 없습니다. version.sh 출력, 패키지 업데이트 이력, Apache Tomcat 보안 권고를 기준으로 취약 버전이면 안정화 버전으로 업데이트되어 있는지 수동 확인하십시오."
+          },
+          "as": "r" }
+      ],
+      "pass": { "rule": "op_verdict" },
+      "remediation": "version.sh, 패키지 업데이트 이력, Apache Tomcat 보안 권고 및 배포판/벤더 백포트 기준으로 취약 버전이면 안정화 버전으로 업데이트하십시오."
     }
   ]
 }

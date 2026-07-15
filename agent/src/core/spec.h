@@ -16,6 +16,10 @@ struct CheckSpec {
     std::string checkId, title, category, severity, method, remediation;
     json        reference = json::object();  // {kisa, cis}
     std::vector<StepSpec> steps;
+    // passRule:
+    //   "all_asserts_passed" (기본) — assert.* 가 모두 통과해야 pass (assert 없으면 pass)
+    //   "op_verdict"         — 마지막 step op 이 반환한 data.{verdict:pass|fail|na, detail?, severity?}
+    //                          를 체크 상태로 승격. 복잡한 판정 로직을 네이티브 op 안에 두는 하이브리드용.
     std::string passRule = "all_asserts_passed";
 };
 
